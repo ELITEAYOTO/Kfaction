@@ -1,0 +1,405 @@
+# ============================================================
+# Kfaction - Configuration principale
+# Plugin Factions moderne - Écosystème K
+# ============================================================
+
+# Version de la configuration (ne pas modifier)
+config-version: 1
+
+# Mode debug (affiche des logs supplémentaires)
+debug: false
+
+# Intervalle de sauvegarde automatique (en secondes)
+# Par défaut: 300 (5 minutes)
+auto-save-interval: 300
+
+# ============================================================
+# STORAGE
+# ============================================================
+storage:
+  # Type: FLATFILE (JSON) ou MYSQL
+  type: FLATFILE
+  
+  # Configuration MySQL (si type: MYSQL)
+  mysql:
+    host: localhost
+    port: 3306
+    database: kfaction
+    username: root
+    password: ""
+    # Pool de connexions
+    pool-size: 10
+
+# ============================================================
+# FACTIONS
+# ============================================================
+factions:
+  # Création
+  name:
+    min-length: 3
+    max-length: 16
+    # Regex pour les noms valides (alphanumérique + underscore)
+    regex: "^[a-zA-Z0-9_]+$"
+    # Mots interdits (insensible à la casse)
+    blocked-words:
+      - admin
+      - modo
+      - staff
+      - warzone
+      - safezone
+      - wilderness
+  
+  # Membres
+  members:
+    max-per-faction: 50
+    
+  # Faction ouverte (rejoint sans invite)
+  open:
+    default: false
+    
+  # Explosions dans les territoires de faction
+  explosions: true
+
+# ============================================================
+# POWER
+# ============================================================
+power:
+  # Valeurs
+  min: -10.0
+  max: 10.0
+  start: 10.0
+  
+  # Perte à la mort
+  loss-per-death: 2.0
+  
+  # Régénération
+  regen-per-minute: 0.1
+  # Multiplicateur si dans son territoire (1.0 = désactivé, évite l'AFK farm)
+  regen-territory-multiplier: 1.0
+  
+  # Inactivité
+  loss-per-day-inactive: 1.0
+  
+  # Bonus par permission (kfaction.power.bonus.<key>)
+  # N'affecte pas les boosts de faction ni les récompenses de niveau.
+  bonus:
+    enabled: true
+    vip: 2.0
+    mvp: 5.0
+    legend: 10.0
+
+# ============================================================
+# CLAIMS
+# ============================================================
+claims:
+  # Mondes autorisés (vide = tous)
+  allowed-worlds: []
+  
+  # Mondes interdits
+  denied-worlds:
+    - world_nether
+    - world_the_end
+    
+  # Limite de claims = power max de la faction
+  # (désactiver pour permettre plus de claims)
+  limit-by-power: true
+  
+  # Obliger les claims à être adjacents aux claims existants
+  # false = les joueurs peuvent claim n'importe où sur la map
+  require-connected: false
+
+# ============================================================
+# WARPS
+# ============================================================
+warps:
+  # Nombre maximum de warps par faction (1 par défaut, upgradeable plus tard)
+  max-per-faction: 1
+  
+  # Longueur max du nom
+  max-name-length: 16
+
+# ============================================================
+# TERRITORY PROTECTION
+# ============================================================
+territory:
+  # Message de refus (avec cooldown pour éviter spam)
+  deny-message-cooldown: 2000  # millisecondes
+  
+  # Son de refus
+  deny-sound:
+    enabled: true
+    sound: NOTE_BASS
+    
+  # Anti-desync (envoie un block update au client)
+  anti-desync: true
+
+# ============================================================
+# RELATIONS
+# ============================================================
+relations:
+  # Activer/désactiver certaines relations
+  ally:
+    enabled: true
+    max-per-faction: 3
+  truce:
+    enabled: true
+    max-per-faction: 5
+  enemy:
+    enabled: true
+    
+  # Friendly fire
+  friendly-fire:
+    same-faction: false
+    ally: false
+    truce: true
+    
+  # Multiplicateur de dégâts entre alliés (si FF activé)
+  ally-damage-multiplier: 0.5
+
+# ============================================================
+# ÉCONOMIE (Vault)
+# ============================================================
+economy:
+  # Coût de création d'une faction (0 = gratuit)
+  faction-create-cost: 0.0
+  
+  # Coût par claim (0 = gratuit)
+  claim-cost: 0.0
+  
+  # Entretien automatique (désactivé par défaut)
+  upkeep:
+    enabled: false
+    cost-per-claim: 10.0
+    interval-hours: 24
+
+# ============================================================
+# TNT / EXPLOSIONS
+# ============================================================
+explosions:
+  # Activer le système de résistance des blocs
+  block-resistance:
+    enabled: true
+    # Nombre d'explosions pour détruire
+    blocks:
+      OBSIDIAN: 6
+      ENDER_CHEST: 4
+      ENCHANTMENT_TABLE: 3
+      ANVIL: 3
+      BEACON: 2
+      
+  # Temps de régénération des dégâts (secondes, 0 = jamais)
+  damage-regen-time: 300
+  
+  # Particules de dégâts
+  damage-particles: true
+
+# ============================================================
+# PROTECTION ANTI-EXPLOIT
+# ============================================================
+protection:
+  # Empêche les pistons de pousser/tirer des blocs entre claims
+  prevent-piston-exploit: true
+  
+  # Empêche l'eau/lave de couler dans les claims ennemis
+  prevent-fluid-flow: true
+  
+  # Empêche le feu de se propager dans les claims
+  prevent-fire-spread: true
+  
+  # Empêche les Endermen de prendre des blocs dans les claims
+  prevent-enderman-grief: true
+  
+  # Empêche les Creepers d'endommager les claims
+  prevent-creeper-damage: false
+  
+  # Empêche la TNT tirée de l'extérieur d'endommager les claims
+  prevent-external-tnt: false
+  
+  # Empêche les Withers d'endommager les claims
+  prevent-wither-damage: true
+  
+  # Empêche le spawn de Wither dans les claims
+  prevent-wither-spawn-in-claims: true
+  
+  # Empêche les hoppers de voler des items entre claims
+  prevent-hopper-stealing: false
+  
+  # Empêche les ender pearls de TP dans les claims ennemis
+  prevent-enderpearl-into-claims: false
+
+# ============================================================
+# TNT BANK (optionnel)
+# ============================================================
+tnt:
+  bank:
+    enabled: false
+    max-per-faction: 10000
+  auto-deposit:
+    enabled: false
+
+# ============================================================
+# MAP
+# ============================================================
+map:
+  width: 10
+  height: 8
+  
+  symbols:
+    wilderness: "▇"
+    safezone: "▇"
+    warzone: "▇"
+    claim: "▇"
+    player: "✖"
+  
+  # Couleurs Minecraft (§X) associées à chaque type de territoire
+  # own     = territoire de votre propre faction
+  # ally    = territoire d'un allié confirmé
+  # truce   = territoire d'une faction en trêve
+  # enemy   = territoire d'une faction ennemie ou neutre hostile
+  # neutral = territoire d'une faction tierce (ni allié, ni ennemi)
+  colors:
+    wilderness: "§7"
+    safezone:   "§a"
+    warzone:    "§4"
+    own:        "§2"
+    ally:       "§9"
+    truce:      "§e"
+    enemy:      "§c"
+    neutral:    "§f"
+    player:     "§5"
+
+  # Textes au survol des cases (hover) en jeu
+  # Mettre une valeur vide "" pour désactiver le hover sur ce type
+  # Placeholder {name} = nom de la faction
+  hover:
+    enabled: true
+    player:     "§dMoi"
+    wilderness: ""
+    safezone:   "§aSafezone"
+    warzone:    "§4Warzone"
+    own:        "§2{name}"
+    ally:       "§9Allié: {name}"
+    truce:      "§eTrêve: {name}"
+    enemy:      "§cEnnemi: {name}"
+    neutral:    "§fNeutre: {name}"
+  
+  show-legend: true
+  show-coordinates: true
+
+# ============================================================
+# INACTIVITÉ
+# ============================================================
+inactivity:
+  # Jours avant transfert automatique de leadership
+  leader-days: 14
+  
+  # Jours avant qu'un membre soit considéré inactif
+  member-days: 30
+  
+  # Dissoudre la faction si aucun remplaçant trouvé
+  disband-if-no-replacement: false
+
+# ============================================================
+# HOME / TELEPORTATION
+# ============================================================
+home:
+  # Délai avant téléportation (secondes)
+  delay: 3
+  
+  # Annuler si le joueur bouge
+  cancel-on-move: true
+  
+  # Annuler si le joueur est attaqué
+  cancel-on-damage: true
+  
+  # Cooldown entre téléportations (secondes)
+  cooldown: 60
+
+# ============================================================
+# WARZONE / SAFEZONE
+# ============================================================
+warzone:
+  # PvP activé
+  pvp: true
+  # Explosions activées
+  explosions: true
+  # Perte de power à la mort
+  power-loss: true
+
+safezone:
+  # PvP désactivé
+  pvp: false
+  # Explosions désactivées
+  explosions: false
+  # Pas de perte de power
+  power-loss: false
+  # Régénération de vie
+  health-regen: true
+
+# ============================================================
+# CHAT FACTION (Privé)
+# ============================================================
+faction-chat:
+  # Activer le système de chat faction
+  enabled: true
+  
+  # Format du chat FACTION (membres de ta faction seulement)
+  # Placeholders: {faction}, {faction_tag}, {role}, {role_name}, {player}, {message}
+  faction:
+    format: "&a[{faction}] {role}{player}: &f{message}"
+    
+  # Format du chat ALLY (faction + alliés confirmés)
+  ally:
+    format: "&5[Ally][{faction}] {player}: &f{message}"
+    
+  # Format du chat TRUCE (faction + trêves confirmées)
+  truce:
+    format: "&e[Truce][{faction}] {player}: &f{message}"
+    
+  # Format du spy (pour les admins)
+  # Placeholders: {original}, {faction}, {mode}
+  spy:
+    format: "&8[SPY] &7{original}"
+
+# ============================================================
+# INTÉGRATIONS
+# ============================================================
+hooks:
+  # Bloquer certaines actions si en combat (via Kcore ou CombatTagPlus)
+  combat-block:
+    home: true
+    stuck: true
+    leave: true
+
+# ============================================================
+# LOGS DE FACTION
+# ============================================================
+logs:
+  # Durée de rétention des logs (en heures)
+  # Les logs plus vieux seront supprimés automatiquement
+  retention-hours: 36
+  
+  # Intervalle de nettoyage automatique (en minutes)
+  cleanup-interval-minutes: 30
+  
+  # Nombre maximum de logs par faction (les plus anciens sont supprimés)
+  # Empêche la croissance mémoire infinie avec 1000+ joueurs
+  max-per-faction: 500
+  
+  # Intervalle de flush des logs sur disque (en secondes)
+  # Les logs sont buffered en mémoire et écrits par batch
+  # Plus bas = plus réactif mais plus d'I/O
+  flush-interval-seconds: 10
+  
+  # Types de logs à enregistrer
+  types:
+    # Actions sur les membres
+    members: true
+    # Actions sur le territoire (claim, unclaim, home, warp)
+    territory: true
+    # Actions économiques (deposit, withdraw)
+    economy: true
+    # Téléportations (home, warp, invite tp)
+    teleport: true
+    # F-Chest (dépôt/retrait d'items)
+    chest: true

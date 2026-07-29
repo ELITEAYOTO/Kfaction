@@ -1,0 +1,291 @@
+name: Kfaction
+version: ${project.version}
+main: me.krunsh.kfaction.Kfaction
+author: Krunsh
+description: Plugin Factions moderne - Intégration complète avec l'écosystème K
+website: https://sparrowmc.fr
+
+# Dépendances soft (le plugin fonctionne sans)
+softdepend:
+  - Vault
+  - PlaceholderAPI
+  - Kcore
+  - Kchat
+  - Kgui
+  - Kclassement
+  - WorldGuard
+  - CombatTagPlus
+  - Multiverse-Core
+  - ShopGUIPlus
+  - Kcraft
+  - KSpawner
+  - Kgenerator
+  - Kminerai
+
+# Commandes
+commands:
+  # Commande joueur
+  f:
+    description: Commande faction pour les joueurs
+    aliases: [faction, fac]
+    usage: /<command> [sous-commande]
+  
+  # Commande admin
+  kfaction:
+    description: Commande admin Kfaction (staff uniquement)
+    aliases: [kf]
+    usage: /<command> <action> [args]
+    permission: kfaction.admin
+
+# Permissions
+permissions:
+  # ===== JOUEUR =====
+  kfaction.player:
+    description: Permissions de base pour les joueurs
+    default: true
+    children:
+      kfaction.create: true
+      kfaction.join: true
+      kfaction.leave: true
+      kfaction.show: true
+      kfaction.list: true
+      kfaction.map: true
+      kfaction.power: true
+      kfaction.home: true
+      kfaction.menu: true
+      kfaction.level: true
+      kfaction.quest: true
+      kfaction.chest: true
+      kfaction.fly: true
+
+  kfaction.create:
+    description: Créer une faction
+    default: true
+
+  kfaction.join:
+    description: Rejoindre une faction
+    default: true
+
+  kfaction.leave:
+    description: Quitter une faction
+    default: true
+
+  kfaction.show:
+    description: Voir les infos d'une faction
+    default: true
+
+  kfaction.list:
+    description: Lister les factions
+    default: true
+
+  kfaction.map:
+    description: Voir la carte des claims
+    default: true
+
+  kfaction.power:
+    description: Voir son power
+    default: true
+
+  kfaction.home:
+    description: Se téléporter au home faction
+    default: true
+
+  kfaction.menu:
+    description: Ouvrir le menu faction
+    default: true
+
+  kfaction.level:
+    description: Voir le niveau de la faction
+    default: true
+
+  kfaction.quest:
+    description: Voir et gérer les quêtes de faction
+    default: true
+
+  kfaction.chest:
+    description: Accéder au coffre de faction
+    default: true
+
+  kfaction.fly:
+    description: Utiliser le fly faction
+    default: true
+
+  # ===== BONUS POWER =====
+  kfaction.power.bonus.vip:
+    description: Bonus de +2 power max
+    default: false
+
+  kfaction.power.bonus.mvp:
+    description: Bonus de +5 power max
+    default: false
+
+  kfaction.power.bonus.legend:
+    description: Bonus de +10 power max
+    default: false
+
+  # ===== ADMIN =====
+  kfaction.admin:
+    description: Toutes les permissions admin
+    default: op
+    children:
+      kfaction.admin.bypass: true
+      kfaction.admin.reload: true
+      kfaction.admin.forcejoin: true
+      kfaction.admin.forceleave: true
+      kfaction.admin.forceleader: true
+      kfaction.admin.disband: true
+      kfaction.admin.setpower: true
+      kfaction.admin.claim.warzone: true
+      kfaction.admin.claim.safezone: true
+      kfaction.admin.unclaim.all: true
+      kfaction.admin.inspect: true
+      kfaction.admin.spy: true
+      kfaction.admin.setbalance: true
+      kfaction.admin.rename: true
+      kfaction.admin.settag: true
+      kfaction.admin.lock: true
+      kfaction.admin.unlock: true
+      kfaction.admin.setrole: true
+      kfaction.admin.teleport: true
+      kfaction.admin.chat: true
+      kfaction.admin.debug: true
+
+  # --- PERMISSIONS STAFF DÉTAILLÉES ---
+  
+  # Bypass - Ignorer les protections territoriales
+  kfaction.admin.bypass:
+    description: Bypass la protection des claims (build/break/interact)
+    default: op
+    
+  # Reload - Recharger la configuration
+  kfaction.admin.reload:
+    description: Recharger la configuration du plugin
+    default: op
+    
+  # Force Join - Forcer un joueur dans une faction
+  kfaction.admin.forcejoin:
+    description: Forcer un joueur à rejoindre une faction
+    default: op
+    
+  # Force Leave - Retirer un joueur de sa faction
+  kfaction.admin.forceleave:
+    description: Forcer un joueur à quitter sa faction
+    default: op
+  
+  # Force Leader - Transfert forcé de leadership
+  kfaction.admin.forceleader:
+    description: Forcer le transfert de leadership d'une faction
+    default: op
+    
+  # Disband - Dissoudre une faction
+  kfaction.admin.disband:
+    description: Dissoudre une faction de force
+    default: op
+    
+  # Set Power - Modifier le power
+  kfaction.admin.setpower:
+    description: Modifier le power d'un joueur
+    default: op
+
+  # Claim Warzone/Safezone
+  kfaction.admin.claim.warzone:
+    description: Claim des chunks en warzone
+    default: op
+    
+  kfaction.admin.claim.safezone:
+    description: Claim des chunks en safezone
+    default: op
+    
+  # Unclaim All - Retirer tous les claims d'une faction
+  kfaction.admin.unclaim.all:
+    description: Retirer tous les claims d'une faction
+    default: op
+
+  # Inspect - Voir les détails internes
+  kfaction.admin.inspect:
+    description: Inspecter les données internes d'une faction
+    default: op
+    
+  # Spy - Espionner les chats
+  kfaction.admin.spy:
+    description: Espionner les chats de faction
+    default: op
+    
+  # Set Balance - Modifier la banque faction
+  kfaction.admin.setbalance:
+    description: Modifier le solde de la banque d'une faction
+    default: op
+    
+  # Rename - Renommer une faction
+  kfaction.admin.rename:
+    description: Renommer une faction de force
+    default: op
+    
+  # Set Tag - Modifier le tag d'une faction
+  kfaction.admin.settag:
+    description: Modifier le tag d'une faction
+    default: op
+    
+  # Lock - Verrouiller une faction
+  kfaction.admin.lock:
+    description: Verrouiller une faction (empêche modifications)
+    default: op
+    
+  # Unlock - Déverrouiller une faction
+  kfaction.admin.unlock:
+    description: Déverrouiller une faction
+    default: op
+    
+  # Set Role - Modifier le rôle d'un membre
+  kfaction.admin.setrole:
+    description: Modifier le rôle d'un joueur dans une faction
+    default: op
+    
+  # Teleport - TP aux claims/homes faction
+  kfaction.admin.teleport:
+    description: Se téléporter aux territoires de n'importe quelle faction
+    default: op
+    
+  # Admin Chat - Envoyer des messages dans le chat faction
+  kfaction.admin.chat:
+    description: Envoyer des messages dans le chat d'une faction
+    default: op
+    
+  # Debug - Commandes de debug
+  kfaction.admin.debug:
+    description: Accéder aux commandes de debug
+    default: op
+
+  # ===== STAFF INTERMÉDIAIRE (MODO) =====
+  kfaction.staff:
+    description: Permissions staff intermédiaires (modérateurs)
+    default: false
+    children:
+      kfaction.admin.bypass: true
+      kfaction.admin.spy: true
+      kfaction.admin.inspect: true
+      kfaction.admin.teleport: true
+
+  # ===== STAFF AVANCÉ (SUPER MODO) =====
+  kfaction.staff.advanced:
+    description: Permissions staff avancées
+    default: false
+    children:
+      kfaction.staff: true
+      kfaction.admin.forcejoin: true
+      kfaction.admin.forceleave: true
+      kfaction.admin.setpower: true
+      kfaction.admin.setrole: true
+
+  # ===== NOTIFICATIONS =====
+  kfaction.notify.faction.create:
+    description: Recevoir les notifications de création de faction
+    default: op
+    
+  kfaction.notify.faction.disband:
+    description: Recevoir les notifications de dissolution de faction
+    default: op
+    
+  kfaction.notify.admin:
+    description: Recevoir les notifications d'actions admin
+    default: op

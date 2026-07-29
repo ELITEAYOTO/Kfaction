@@ -1,0 +1,178 @@
+# KFaction progression v2 — EXEMPLE TECHNIQUE, PAS UN ÉQUILIBRAGE PRODUCTION.
+# Copiez ce fichier sous progression.yml seulement après avoir choisi les
+# objectifs de Volkaria. Tant que progression.yml est absent ou invalide,
+# l'ancien tirage aléatoire/XP ne reprend pas: la progression est désactivée.
+schema-version: 2
+
+settings:
+  enabled: true
+  starting-level: 1
+  broadcast-level-up: true
+
+# Catégories d'affichage libres. Elles ne sélectionnent ni n'excluent de quête.
+categories:
+  mining:
+    display: "&bMinage"
+    icon:
+      material: DIAMOND_PICKAXE
+      data: 0
+    lore:
+      - "&7Objectifs de minage du niveau."
+  farming:
+    display: "&aAgriculture"
+    icon:
+      material: WHEAT
+      data: 0
+    lore:
+      - "&7Objectifs de récolte et de vente."
+  hunting:
+    display: "&cChasse"
+    icon:
+      material: IRON_SWORD
+      data: 0
+    lore:
+      - "&7Objectifs de combat."
+
+# Les bornes doivent commencer à 1, être contiguës et couvrir factions.max-members.
+# La tranche la plus haute atteinte reste verrouillée jusqu'au niveau suivant.
+member-tiers:
+  small:
+    display: "1 à 5 membres"
+    min-players: 1
+    max-players: 5
+  medium:
+    display: "6 à 10 membres"
+    min-players: 6
+    max-players: 10
+  large:
+    display: "11 à 50 membres"
+    min-players: 11
+    max-players: 50
+
+# Tous les identifiants de niveau doivent être contigus.
+# Toutes les quêtes de la tranche active sont obligatoires simultanément.
+levels:
+  1:
+    display: "&eNiveau 1"
+    rewards-on-enter: []
+    tiers:
+      small:
+        quests:
+          stone:
+            type: MINE
+            category: mining
+            target: STONE
+            amount: 100
+            display: "&fPierre minée: &e{progress}&7/&e{amount}"
+            conditions:
+              count-player-placed-blocks: false
+              allow-silk-touch: false
+          wheat_sell:
+            type: SELL
+            category: farming
+            target: WHEAT
+            amount: 32
+            display: "&fBlé vendu: &e{progress}&7/&e{amount}"
+          zombies:
+            type: MOB_KILL
+            category: hunting
+            target: ZOMBIE
+            amount: 10
+            display: "&fZombies: &e{progress}&7/&e{amount}"
+      medium:
+        quests:
+          stone:
+            type: MINE
+            category: mining
+            target: STONE
+            amount: 250
+            display: "&fPierre minée: &e{progress}&7/&e{amount}"
+          wheat_sell:
+            type: SELL
+            category: farming
+            target: WHEAT
+            amount: 80
+            display: "&fBlé vendu: &e{progress}&7/&e{amount}"
+          zombies:
+            type: MOB_KILL
+            category: hunting
+            target: ZOMBIE
+            amount: 25
+            display: "&fZombies: &e{progress}&7/&e{amount}"
+      large:
+        quests:
+          stone:
+            type: MINE
+            category: mining
+            target: STONE
+            amount: 500
+            display: "&fPierre minée: &e{progress}&7/&e{amount}"
+          wheat_sell:
+            type: SELL
+            category: farming
+            target: WHEAT
+            amount: 160
+            display: "&fBlé vendu: &e{progress}&7/&e{amount}"
+          zombies:
+            type: MOB_KILL
+            category: hunting
+            target: ZOMBIE
+            amount: 50
+            display: "&fZombies: &e{progress}&7/&e{amount}"
+
+  2:
+    display: "&eNiveau 2"
+    rewards-on-enter:
+      - id: unlock_faction_chest
+        type: faction_chest_unlock
+        value: 36
+        description: "&6Coffre de faction débloqué"
+    tiers:
+      small:
+        quests:
+          iron_smelt:
+            type: SMELT
+            category: mining
+            target: IRON_INGOT
+            amount: 32
+            display: "&fFer fondu: &e{progress}&7/&e{amount}"
+          mature_wheat:
+            type: HARVEST
+            category: farming
+            target: CROPS:7
+            amount: 64
+            display: "&fBlé mûr récolté: &e{progress}&7/&e{amount}"
+            conditions:
+              mature-only: true
+      medium:
+        quests:
+          iron_smelt:
+            type: SMELT
+            category: mining
+            target: IRON_INGOT
+            amount: 80
+            display: "&fFer fondu: &e{progress}&7/&e{amount}"
+          mature_wheat:
+            type: HARVEST
+            category: farming
+            target: CROPS:7
+            amount: 160
+            display: "&fBlé mûr récolté: &e{progress}&7/&e{amount}"
+            conditions:
+              mature-only: true
+      large:
+        quests:
+          iron_smelt:
+            type: SMELT
+            category: mining
+            target: IRON_INGOT
+            amount: 160
+            display: "&fFer fondu: &e{progress}&7/&e{amount}"
+          mature_wheat:
+            type: HARVEST
+            category: farming
+            target: CROPS:7
+            amount: 320
+            display: "&fBlé mûr récolté: &e{progress}&7/&e{amount}"
+            conditions:
+              mature-only: true

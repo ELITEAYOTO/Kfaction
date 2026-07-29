@@ -1,0 +1,223 @@
+# ============================================================
+# Kfaction - Configuration des Quêtes
+# Définit les pools de quêtes par catégorie
+# ============================================================
+# Chaque quête a:
+#   type: block_break | entity_kill | item_smelt | item_sell
+#   target: Material ou EntityType Bukkit (1.8.8)
+#   sparrowmc-item: identifiant CIT exact optionnel pour item_sell
+#                    (le tag level est volontairement ignoré)
+#   display: Nom affiché au joueur
+#   amounts: Liste de quantités possibles (choix aléatoire)
+#   xp: XP par quête complétée (ou liste correspondant à amounts)
+# ============================================================
+
+# Nombre de quêtes actives par faction
+active-quests: 3
+
+# Catégorie MINEUR - Minage de blocs
+mineur:
+  quests:
+    mine_diamond_ore:
+      type: block_break
+      target: DIAMOND_ORE
+      display: "Miner du Diamant"
+      amounts: [50, 100, 200]
+      xp: [30, 60, 120]
+    mine_gold_ore:
+      type: block_break
+      target: GOLD_ORE
+      display: "Miner de l'Or"
+      amounts: [100, 200, 400]
+      xp: [25, 50, 100]
+    mine_iron_ore:
+      type: block_break
+      target: IRON_ORE
+      display: "Miner du Fer"
+      amounts: [200, 400, 800]
+      xp: [20, 40, 80]
+    mine_emerald_ore:
+      type: block_break
+      target: EMERALD_ORE
+      display: "Miner de l'Émeraude"
+      amounts: [25, 50, 100]
+      xp: [35, 70, 140]
+    mine_lapis_ore:
+      type: block_break
+      target: LAPIS_ORE
+      display: "Miner du Lapis"
+      amounts: [64, 128, 256]
+      xp: [20, 40, 80]
+    mine_redstone_ore:
+      type: block_break
+      target: REDSTONE_ORE
+      display: "Miner de la Redstone"
+      amounts: [100, 200, 400]
+      xp: [20, 40, 80]
+    mine_coal_ore:
+      type: block_break
+      target: COAL_ORE
+      display: "Miner du Charbon"
+      amounts: [200, 500, 1000]
+      xp: [15, 35, 70]
+    mine_quartz:
+      type: block_break
+      target: QUARTZ_ORE
+      display: "Miner du Quartz"
+      amounts: [100, 250, 500]
+      xp: [20, 45, 90]
+    mine_obsidian:
+      type: block_break
+      target: OBSIDIAN
+      display: "Miner de l'Obsidienne"
+      amounts: [32, 64, 128]
+      xp: [30, 60, 120]
+    mine_stone:
+      type: block_break
+      target: STONE
+      display: "Miner de la Pierre"
+      amounts: [500, 1000, 2000]
+      xp: [10, 20, 40]
+    smelt_iron:
+      type: item_smelt
+      target: IRON_INGOT
+      display: "Fondre du Fer"
+      amounts: [100, 200, 500]
+      xp: [25, 50, 100]
+    smelt_gold:
+      type: item_smelt
+      target: GOLD_INGOT
+      display: "Fondre de l'Or"
+      amounts: [50, 100, 250]
+      xp: [30, 60, 120]
+
+# Catégorie FARMER - Récoltes et farming
+farmer:
+  quests:
+    harvest_wheat:
+      type: block_break
+      target: CROPS
+      display: "Récolter du Blé"
+      amounts: [200, 500, 1000]
+      xp: [15, 35, 70]
+    harvest_carrot:
+      type: block_break
+      target: CARROT
+      display: "Récolter des Carottes"
+      amounts: [200, 500, 1000]
+      xp: [15, 35, 70]
+    harvest_potato:
+      type: block_break
+      target: POTATO
+      display: "Récolter des Patates"
+      amounts: [200, 500, 1000]
+      xp: [15, 35, 70]
+    harvest_sugar_cane:
+      type: block_break
+      target: SUGAR_CANE_BLOCK
+      display: "Récolter de la Canne"
+      amounts: [200, 500, 1000]
+      xp: [15, 35, 70]
+    harvest_melon:
+      type: block_break
+      target: MELON_BLOCK
+      display: "Récolter des Melons"
+      amounts: [100, 250, 500]
+      xp: [20, 45, 90]
+    harvest_pumpkin:
+      type: block_break
+      target: PUMPKIN
+      display: "Récolter des Citrouilles"
+      amounts: [100, 250, 500]
+      xp: [20, 45, 90]
+    harvest_cactus:
+      type: block_break
+      target: CACTUS
+      display: "Récolter des Cactus"
+      amounts: [100, 250, 500]
+      xp: [20, 45, 90]
+    harvest_nether_wart:
+      type: block_break
+      target: NETHER_WARTS
+      display: "Récolter des Verrues"
+      amounts: [100, 300, 600]
+      xp: [25, 50, 100]
+    harvest_cocoa:
+      type: block_break
+      target: COCOA
+      display: "Récolter du Cacao"
+      amounts: [100, 250, 500]
+      xp: [20, 45, 90]
+
+# Catégorie CHASSEUR - Tuer des mobs
+chasseur:
+  quests:
+    kill_zombie:
+      type: entity_kill
+      target: ZOMBIE
+      display: "Tuer des Zombies"
+      amounts: [100, 250, 500]
+      xp: [15, 35, 70]
+    kill_skeleton:
+      type: entity_kill
+      target: SKELETON
+      display: "Tuer des Squelettes"
+      amounts: [100, 250, 500]
+      xp: [15, 35, 70]
+    kill_spider:
+      type: entity_kill
+      target: SPIDER
+      display: "Tuer des Araignées"
+      amounts: [100, 250, 500]
+      xp: [15, 35, 70]
+    kill_creeper:
+      type: entity_kill
+      target: CREEPER
+      display: "Tuer des Creepers"
+      amounts: [50, 150, 300]
+      xp: [20, 50, 100]
+    kill_enderman:
+      type: entity_kill
+      target: ENDERMAN
+      display: "Tuer des Endermen"
+      amounts: [50, 100, 200]
+      xp: [25, 50, 100]
+    kill_blaze:
+      type: entity_kill
+      target: BLAZE
+      display: "Tuer des Blazes"
+      amounts: [50, 100, 200]
+      xp: [30, 60, 120]
+    kill_pigman:
+      type: entity_kill
+      target: PIG_ZOMBIE
+      display: "Tuer des Zombie Pigmen"
+      amounts: [100, 200, 400]
+      xp: [20, 40, 80]
+    kill_witch:
+      type: entity_kill
+      target: WITCH
+      display: "Tuer des Sorcières"
+      amounts: [25, 50, 100]
+      xp: [30, 60, 120]
+    kill_guardian:
+      type: entity_kill
+      target: GUARDIAN
+      display: "Tuer des Gardiens"
+      amounts: [25, 75, 150]
+      xp: [30, 75, 150]
+    kill_wither_skeleton:
+      type: entity_kill
+      target: SKELETON
+      # Note: Wither skeletons are SKELETON with special data in 1.8
+      # Le listener vérifiera le SkeletonType
+      display: "Tuer des Wither Squelettes"
+      amounts: [25, 50, 100]
+      xp: [35, 70, 140]
+      wither-skeleton: true
+    kill_player:
+      type: entity_kill
+      target: PLAYER
+      display: "Tuer des Joueurs"
+      amounts: [10, 25, 50]
+      xp: [50, 100, 200]

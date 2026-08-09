@@ -26,6 +26,50 @@ public class ProgressionPolicyTest {
     }
 
     @Test
+    public void readOnlyViewsDoNotMutateLockedTier() {
+        ProgressionConfig config =
+                config();
+
+        FactionProgressState state =
+                new FactionProgressState();
+
+        state.beginLevel(
+                1,
+                config.getTier("small")
+        );
+
+        assertEquals(
+                "small",
+                state.getLockedTierId()
+        );
+
+        java.util.List<QuestProgressView> views =
+                ProgressionPolicy.viewsReadOnly(
+                        config,
+                        state,
+                        1,
+                        6
+                );
+
+        /*
+         * Le snapshot reflète la difficulté medium actuelle...
+         */
+        assertEquals(
+                500L,
+                views.get(0)
+                        .getRequired()
+        );
+
+        /*
+         * ...sans écrire le lock medium dans l'état.
+         */
+        assertEquals(
+                "small",
+                state.getLockedTierId()
+        );
+    }
+
+    @Test
     public void tierNeverDropsBeforeNextLevel() {
         ProgressionConfig config = config();
         FactionProgressState state = new FactionProgressState();

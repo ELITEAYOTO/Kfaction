@@ -51,16 +51,54 @@ public class FlyListener implements Listener {
     }
     
     public void loadConfig() {
-        java.io.File file = new java.io.File(plugin.getDataFolder(), "levels.yml");
-        if (file.exists()) {
-            org.bukkit.configuration.file.YamlConfiguration config = 
-                org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(file);
-            disableInCombat = config.getBoolean("fly.disable-in-combat", true);
-            disableOutTerritory = config.getBoolean("fly.disable-out-territory", true);
-            preventFallDamage = config.getBoolean("fly.prevent-fall-damage", true);
-            fallProtectionTicks = config.getInt("fly.fall-protection-ticks", 60);
-            flySpeed = (float) config.getDouble("fly.speed", 1.0);
-        }
+        disableInCombat =
+                plugin.getConfigManager()
+                        .getBoolean(
+                                "fly.disable-in-combat",
+                                true
+                        );
+
+        disableOutTerritory =
+                plugin.getConfigManager()
+                        .getBoolean(
+                                "fly.disable-out-territory",
+                                true
+                        );
+
+        preventFallDamage =
+                plugin.getConfigManager()
+                        .getBoolean(
+                                "fly.prevent-fall-damage",
+                                true
+                        );
+
+        fallProtectionTicks =
+                Math.max(
+                        0,
+                        plugin.getConfigManager()
+                                .getInt(
+                                        "fly.fall-protection-ticks",
+                                        60
+                                )
+                );
+
+        flySpeed =
+                (float) Math.max(
+                        0.1D,
+                        Math.min(
+                                10.0D,
+                                plugin.getConfigManager()
+                                        .getDouble(
+                                                "fly.speed",
+                                                1.0D
+                                        )
+                        )
+                );
+
+        me.krunsh.kfaction.utils.KfactionLogger.debug(
+                plugin,
+                "Fly config chargée depuis config.yml."
+        );
     }
     
     /**
@@ -77,7 +115,7 @@ public class FlyListener implements Listener {
         
         // Vérifier que la faction a débloqué le fly
         if (!faction.isFactionFlyEnabled()) {
-            player.sendMessage("§cVotre faction n'a pas encore débloqué le /f fly! §7(Niveau 4 requis)");
+            player.sendMessage("§cVotre faction n'a pas encore débloqué le /f fly.");
             return false;
         }
         

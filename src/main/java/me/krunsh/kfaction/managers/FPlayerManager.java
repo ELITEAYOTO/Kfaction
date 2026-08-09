@@ -4,318 +4,511 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
+import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
 import me.krunsh.kfaction.Kfaction;
 import me.krunsh.kfaction.data.FPlayer;
 import me.krunsh.kfaction.data.Faction;
+import me.krunsh.kfaction.storage.Storage;
 
 /**
- * Gestionnaire des joueurs de faction (FPlayer) — optimisé pour 1000+ joueurs
- * 
- * Optimisations:
- * - Index faction→joueurs (O(1) au lieu de O(n) scan complet)
- * - Index nom→UUID (O(1) au lieu de O(n) scan complet)
- * - Config power cachée (évite les appels à getDouble sur chaque nouveau joueur)
+ * Gestionnaire des FPlayer.
+ *
+ * Transition V2 :
+ *
+ * - findLoaded(...) : lecture mémoire pure, ne charge et ne crée rien.
+ * - find(...)       : cherche mémoire puis stockage, ne crée jamais.
+ * - getOrCreate(...) : charge si possible puis crée explicitement si absent.
+ *
+ * Les anciennes méthodes getFPlayer(...) sont conservées temporairement pour
+ * compatibilité, mais elles sont désormais clairement des alias get-or-create.
  */
 public class FPlayerManager {
-    
+
     private final Kfaction plugin;
-    
-    // Cache principal des FPlayers par UUID
+
     private final Map<UUID, FPlayer> playersCache;
-    
-    // Index: factionId → Set<UUID> — O(1) lookup des membres d'une faction
     private final Map<String, Set<UUID>> factionPlayerIndex;
-    
-    // Index: nom (lowercase) → UUID — O(1) lookup par nom
     private final Map<String, UUID> nameIndex;
-    
-    // Config cachée pour éviter des appels à getDouble sur chaque nouveau joueur
-    private double cachedStartPower = 10.0;
-    private double cachedMaxPower = 10.0;
-    
+
+    private double cachedStartPower = 10.0D;
+    private double cachedMaxPower = 10.0D;
+
     public FPlayerManager(Kfaction plugin) {
         this.plugin = plugin;
         this.playersCache = new ConcurrentHashMap<>();
         this.factionPlayerIndex = new ConcurrentHashMap<>();
         this.nameIndex = new ConcurrentHashMap<>();
     }
-    
-    /**
-     * Initialise le manager et cache la config power
-     */
+
     public void initialize() {
-        cachedStartPower = plugin.getConfigManager().getDouble("power.start", 10.0);
-        cachedMaxPower = plugin.getConfigManager().getDouble("power.max", 10.0);
+        reloadPowerSettings();
         plugin.getLogger().info("FPlayerManager initialisé");
     }
-    
+
     /**
-     * Ferme le manager
+     * Recharge les valeurs de base power utilisées lors des créations/loads.
+     *
+     * Lot25D: power.max ne doit pas rester figé à la valeur du boot après
+     * /kf reload. Les profils déjà chargés reçoivent également le nouveau
+     * maximum de base; si le maximum baisse et tronque le power courant, le
+     * profil est marqué dirty afin que la valeur persistée reste cohérente.
      */
+    public void reloadPowerSettings() {
+        if (!Bukkit.isPrimaryThread()) {
+            Bukkit.getScheduler()
+                    .runTask(
+                            plugin,
+                            new Runnable() {
+                                @Override
+                                public void run() {
+                                    reloadPowerSettings();
+                                }
+                            }
+                    );
+            return;
+        }
+
+        double newStartPower =
+                plugin.getConfigManager()
+                        .getDouble(
+                                "power.start",
+                                10.0D
+                        );
+
+        double newMaxPower =
+                plugin.getConfigManager()
+                        .getDouble(
+                                "power.max",
+                                10.0D
+                        );
+
+        cachedStartPower = newStartPower;
+        cachedMaxPower = newMaxPower;
+
+        for (FPlayer fPlayer : getAllPlayers()) {
+            if (fPlayer == null) {
+                continue;
+            }
+
+            double beforePower = fPlayer.getPower();
+            double beforeMax = fPlayer.getMaxPower();
+
+            fPlayer.setMaxPower(newMaxPower);
+
+            if (Double.compare(beforePower, fPlayer.getPower()) != 0
+                    || Double.compare(beforeMax, newMaxPower) != 0) {
+                plugin.getStorageManager()
+                        .markDirty(
+                                fPlayer
+                        );
+            }
+        }
+    }
+
     public void shutdown() {
         playersCache.clear();
         factionPlayerIndex.clear();
         nameIndex.clear();
     }
-    
-    // === Opérations de base ===
-    
+
+    // ============================================================
+    // API V2 explicite
+    // ============================================================
+
     /**
-     * Obtient ou crée un FPlayer pour un UUID
-     * @param uuid UUID du joueur
-     * @return Le FPlayer (jamais null)
+     * Lecture mémoire pure.
+     *
+     * @return le profil déjà chargé ou null.
      */
-    public FPlayer getFPlayer(UUID uuid) {
-        if (uuid == null) return null;
-        
-        return playersCache.computeIfAbsent(uuid, id -> {
-            FPlayer fPlayer = new FPlayer(id);
-            initializeNewPlayer(fPlayer);
-            return fPlayer;
-        });
-    }
-    
-    /**
-     * Obtient ou crée un FPlayer pour un joueur Bukkit
-     * @param player Le joueur
-     * @return Le FPlayer (jamais null)
-     */
-    public FPlayer getFPlayer(Player player) {
-        if (player == null) return null;
-        FPlayer fPlayer = getFPlayer(player.getUniqueId());
-        String oldName = fPlayer.getLastKnownName();
-        String newName = player.getName();
-        fPlayer.setLastKnownName(newName);
-        // Mettre à jour l'index de noms si changé
-        if (!newName.equals(oldName)) {
-            if (oldName != null && !oldName.isEmpty()) {
-                nameIndex.remove(oldName.toLowerCase());
-            }
-            nameIndex.put(newName.toLowerCase(), player.getUniqueId());
+    public FPlayer findLoaded(UUID uuid) {
+        if (uuid == null) {
+            return null;
         }
-        return fPlayer;
+        return playersCache.get(uuid);
     }
-    
+
     /**
-     * Alias pour getFPlayer
+     * Recherche un profil existant.
+     *
+     * 1. cache mémoire ;
+     * 2. stockage persistant ;
+     * 3. null si le profil n'existe réellement pas.
+     *
+     * Cette méthode NE CRÉE JAMAIS de FPlayer.
+     *
+     * L'accès stockage est synchrone dans le backend V1. Il convient aux
+     * commandes/login/outils staff, pas à une boucle hot-path.
      */
-    public FPlayer get(Player player) {
-        return getFPlayer(player);
+    public FPlayer find(UUID uuid) {
+        if (uuid == null) {
+            return null;
+        }
+
+        FPlayer cached = playersCache.get(uuid);
+        if (cached != null) {
+            return cached;
+        }
+
+        /*
+         * Charger depuis le storage modifie ensuite le cache/index FPlayer.
+         * Cette transition reste donc confinée au main thread.
+         *
+         * Hors main thread, find() devient une lecture cache-only.
+         */
+        if (!Bukkit.isPrimaryThread()) {
+            return null;
+        }
+
+        Storage storage = getStorageSafely();
+        if (storage == null) {
+            return null;
+        }
+
+        FPlayer loaded = storage.loadFPlayer(uuid.toString());
+        if (loaded == null) {
+            return null;
+        }
+
+        loadFPlayer(loaded);
+        return playersCache.get(uuid);
     }
-    
+
     /**
-     * Alias pour getFPlayer
+     * Charge un profil existant, ou le crée explicitement s'il n'existe pas.
      */
     public FPlayer getOrCreate(UUID uuid) {
-        return getFPlayer(uuid);
+        if (uuid == null) {
+            return null;
+        }
+
+        if (!Bukkit.isPrimaryThread()) {
+            return findLoaded(uuid);
+        }
+
+        FPlayer existing = find(uuid);
+        if (existing != null) {
+            return existing;
+        }
+
+        FPlayer created = new FPlayer(uuid);
+        initializeNewPlayer(created);
+
+        FPlayer raced = playersCache.putIfAbsent(uuid, created);
+        return raced != null ? raced : created;
     }
-    
+
     /**
-     * Vérifie si un FPlayer est en cache
+     * Variante Bukkit de getOrCreate avec mise à jour de l'index de nom.
      */
+    public FPlayer getOrCreate(Player player) {
+        if (player == null) {
+            return null;
+        }
+
+        FPlayer fPlayer = getOrCreate(player.getUniqueId());
+        updateKnownName(fPlayer, player.getName());
+        return fPlayer;
+    }
+
+    /**
+     * Recherche mémoire par nom.
+     *
+     * Le stockage V1 ne possède pas d'index nom global, donc cette méthode
+     * n'effectue volontairement pas de scan disque.
+     */
+    public FPlayer findLoadedByName(String name) {
+        if (name == null) {
+            return null;
+        }
+
+        UUID uuid = nameIndex.get(name.toLowerCase(Locale.ROOT));
+        return uuid != null ? playersCache.get(uuid) : null;
+    }
+
+    // ============================================================
+    // Compatibilité V1
+    // ============================================================
+
+    /**
+     * @deprecated ambigu : utiliser findLoaded, find ou getOrCreate.
+     */
+    @Deprecated
+    public FPlayer getFPlayer(UUID uuid) {
+        return getOrCreate(uuid);
+    }
+
+    /**
+     * @deprecated ambigu : utiliser getOrCreate(Player).
+     */
+    @Deprecated
+    public FPlayer getFPlayer(Player player) {
+        return getOrCreate(player);
+    }
+
+    public FPlayer get(Player player) {
+        return getOrCreate(player);
+    }
+
+    /**
+     * Ancien alias conservé.
+     */
+    public FPlayer getOrCreatePlayer(UUID uuid) {
+        return getOrCreate(uuid);
+    }
+
+    // ============================================================
+    // État/cache
+    // ============================================================
+
     public boolean isLoaded(UUID uuid) {
-        return playersCache.containsKey(uuid);
+        return uuid != null && playersCache.containsKey(uuid);
     }
-    
-    /**
-     * Obtient tous les FPlayers en cache
-     */
+
     public Collection<FPlayer> getAllPlayers() {
-        return Collections.unmodifiableCollection(playersCache.values());
+        return Collections.unmodifiableList(
+                new ArrayList<FPlayer>(
+                        playersCache.values()
+                )
+        );
     }
-    
-    /**
-     * Obtient tous les FPlayers d'une faction — O(1) via index
-     */
+
     public List<FPlayer> getPlayersInFaction(String factionId) {
+        if (factionId == null) {
+            return Collections.emptyList();
+        }
+
         Set<UUID> memberUuids = factionPlayerIndex.get(factionId);
         if (memberUuids == null || memberUuids.isEmpty()) {
             return Collections.emptyList();
         }
+
         List<FPlayer> result = new ArrayList<>(memberUuids.size());
         for (UUID uuid : memberUuids) {
-            FPlayer fp = playersCache.get(uuid);
-            if (fp != null) {
-                result.add(fp);
+            FPlayer fPlayer = playersCache.get(uuid);
+            if (fPlayer != null) {
+                result.add(fPlayer);
             }
         }
+
         return result;
     }
-    
-    /**
-     * Obtient les joueurs en ligne d'une faction — O(k) k=membres de la faction
-     */
+
     public List<FPlayer> getOnlinePlayersInFaction(String factionId) {
+        if (factionId == null) {
+            return Collections.emptyList();
+        }
+
         Set<UUID> memberUuids = factionPlayerIndex.get(factionId);
         if (memberUuids == null || memberUuids.isEmpty()) {
             return Collections.emptyList();
         }
+
         List<FPlayer> result = new ArrayList<>();
         for (UUID uuid : memberUuids) {
-            FPlayer fp = playersCache.get(uuid);
-            if (fp != null && fp.isOnline()) {
-                result.add(fp);
+            FPlayer fPlayer = playersCache.get(uuid);
+            if (fPlayer != null && fPlayer.isOnline()) {
+                result.add(fPlayer);
             }
         }
+
         return result;
     }
-    
-    // === Index management ===
-    
-    /**
-     * Notifie un changement de faction pour un joueur.
-     * Met à jour l'index factionId→UUID.
-     * DOIT être appelé chaque fois que le factionId d'un FPlayer change.
-     *
-     * @param uuid UUID du joueur
-     * @param oldFactionId ancien factionId (peut être null)
-     * @param newFactionId nouveau factionId (peut être null)
-     */
-    public void notifyFactionChange(UUID uuid, String oldFactionId, String newFactionId) {
+
+    // ============================================================
+    // Index management
+    // ============================================================
+
+    public void notifyFactionChange(
+            UUID uuid,
+            String oldFactionId,
+            String newFactionId
+    ) {
+        if (uuid == null) {
+            return;
+        }
+
         if (oldFactionId != null) {
             Set<UUID> oldSet = factionPlayerIndex.get(oldFactionId);
             if (oldSet != null) {
                 oldSet.remove(uuid);
                 if (oldSet.isEmpty()) {
-                    factionPlayerIndex.remove(oldFactionId);
+                    factionPlayerIndex.remove(oldFactionId, oldSet);
                 }
             }
         }
+
         if (newFactionId != null) {
-            factionPlayerIndex.computeIfAbsent(newFactionId, 
-                k -> ConcurrentHashMap.newKeySet()).add(uuid);
+            factionPlayerIndex
+                    .computeIfAbsent(newFactionId, key -> ConcurrentHashMap.newKeySet())
+                    .add(uuid);
         }
     }
-    
-    // === Initialisation et configuration ===
-    
-    /**
-     * Initialise un nouveau joueur avec les valeurs de config cachées
-     */
+
+    private void updateKnownName(FPlayer fPlayer, String newName) {
+        if (fPlayer == null || newName == null || newName.isEmpty()) {
+            return;
+        }
+
+        String oldName = fPlayer.getLastKnownName();
+
+        if (oldName != null
+                && !oldName.isEmpty()
+                && !oldName.equalsIgnoreCase(newName)) {
+            nameIndex.remove(oldName.toLowerCase(Locale.ROOT), fPlayer.getUuid());
+        }
+
+        fPlayer.setLastKnownName(newName);
+        nameIndex.put(newName.toLowerCase(Locale.ROOT), fPlayer.getUuid());
+    }
+
+    private void removeIndexes(FPlayer fPlayer) {
+        if (fPlayer == null) {
+            return;
+        }
+
+        if (fPlayer.hasFaction()) {
+            Set<UUID> set = factionPlayerIndex.get(fPlayer.getFactionId());
+            if (set != null) {
+                set.remove(fPlayer.getUuid());
+                if (set.isEmpty()) {
+                    factionPlayerIndex.remove(fPlayer.getFactionId(), set);
+                }
+            }
+        }
+
+        String name = fPlayer.getLastKnownName();
+        if (name != null && !name.isEmpty()) {
+            nameIndex.remove(name.toLowerCase(Locale.ROOT), fPlayer.getUuid());
+        }
+    }
+
+    private void index(FPlayer fPlayer) {
+        if (fPlayer.hasFaction()) {
+            factionPlayerIndex
+                    .computeIfAbsent(
+                            fPlayer.getFactionId(),
+                            key -> ConcurrentHashMap.newKeySet()
+                    )
+                    .add(fPlayer.getUuid());
+        }
+
+        String name = fPlayer.getLastKnownName();
+        if (name != null && !name.isEmpty()) {
+            nameIndex.put(name.toLowerCase(Locale.ROOT), fPlayer.getUuid());
+        }
+    }
+
+    // ============================================================
+    // Création / chargement
+    // ============================================================
+
     private void initializeNewPlayer(FPlayer fPlayer) {
-        fPlayer.setPower(cachedStartPower);
         fPlayer.setMaxPower(cachedMaxPower);
+        fPlayer.setPower(cachedStartPower);
         fPlayer.setFirstJoin(System.currentTimeMillis());
         fPlayer.updateLastSeen();
     }
-    
-    // === Événements joueur ===
-    
+
     /**
-     * Appelé quand un joueur se connecte
+     * Charge/remplace un profil en cache et reconstruit ses index.
      */
-    public FPlayer onPlayerJoin(Player player) {
-        FPlayer fPlayer = getFPlayer(player);
-        fPlayer.updateLastSeen();
-        fPlayer.updateName();
-        
-        // Mettre à jour l'index de noms
-        String name = player.getName();
-        if (name != null && !name.isEmpty()) {
-            nameIndex.put(name.toLowerCase(), player.getUniqueId());
+    public void loadFPlayer(FPlayer fPlayer) {
+        if (fPlayer == null || fPlayer.getUuid() == null) {
+            return;
         }
-        
-        // Vérifier s'il était déjà dans une faction pour mettre à jour l'activité
+
+        // power.max configuré reste la base canonique du serveur.
+        fPlayer.setMaxPower(cachedMaxPower);
+
+        FPlayer previous = playersCache.put(fPlayer.getUuid(), fPlayer);
+        if (previous != null && previous != fPlayer) {
+            removeIndexes(previous);
+        }
+
+        index(fPlayer);
+    }
+
+    public void unloadFPlayer(UUID uuid) {
+        if (uuid == null) {
+            return;
+        }
+
+        FPlayer fPlayer = playersCache.remove(uuid);
+        removeIndexes(fPlayer);
+    }
+
+    // ============================================================
+    // Connexion / déconnexion
+    // ============================================================
+
+    public FPlayer onPlayerJoin(Player player) {
+        FPlayer fPlayer = getOrCreate(player);
+
+        fPlayer.updateLastSeen();
+        updateKnownName(fPlayer, player.getName());
+
         if (fPlayer.hasFaction()) {
             Faction faction = plugin.getFactionManager().getFaction(fPlayer.getFactionId());
             if (faction != null) {
                 faction.updateActivity();
             }
         }
-        
+
         return fPlayer;
     }
-    
-    /**
-     * Appelé quand un joueur se déconnecte
-     */
+
     public void onPlayerQuit(Player player) {
-        FPlayer fPlayer = playersCache.get(player.getUniqueId());
-        if (fPlayer != null) {
-            fPlayer.updateLastSeen();
-            fPlayer.setAutoClaimEnabled(false);
-            fPlayer.setMapAutoUpdateEnabled(false);
-            fPlayer.setSeeingChunks(false);
-            
-            plugin.getStorageManager().markDirty(fPlayer);
+        if (player == null) {
+            return;
         }
+
+        FPlayer fPlayer = findLoaded(player.getUniqueId());
+        if (fPlayer == null) {
+            return;
+        }
+
+        fPlayer.updateLastSeen();
+        fPlayer.setAutoClaimEnabled(false);
+        fPlayer.setMapAutoUpdateEnabled(false);
+        fPlayer.setSeeingChunks(false);
+
+        plugin.getStorageManager().markDirty(fPlayer);
     }
-    
-    // === Chargement depuis stockage ===
-    
+
+    // ============================================================
+    // Compatibilité noms / diagnostics
+    // ============================================================
+
     /**
-     * Charge un FPlayer dans le cache et met à jour les index
+     * @deprecated utiliser findLoadedByName.
      */
-    public void loadFPlayer(FPlayer fPlayer) {
-        if (fPlayer == null) return;
-        // Migration des anciennes valeurs persistées : power.max est la base
-        // canonique par membre, les bonus de permission restent dynamiques.
-        fPlayer.setMaxPower(cachedMaxPower);
-        playersCache.put(fPlayer.getUuid(), fPlayer);
-        
-        // Indexer par faction
-        if (fPlayer.hasFaction()) {
-            factionPlayerIndex.computeIfAbsent(fPlayer.getFactionId(), 
-                k -> ConcurrentHashMap.newKeySet()).add(fPlayer.getUuid());
-        }
-        
-        // Indexer par nom
-        String name = fPlayer.getLastKnownName();
-        if (name != null && !name.isEmpty()) {
-            nameIndex.put(name.toLowerCase(), fPlayer.getUuid());
-        }
-    }
-    
-    /**
-     * Décharge un FPlayer du cache et nettoie les index
-     */
-    public void unloadFPlayer(UUID uuid) {
-        FPlayer fPlayer = playersCache.remove(uuid);
-        if (fPlayer != null) {
-            // Nettoyer l'index faction
-            if (fPlayer.hasFaction()) {
-                Set<UUID> set = factionPlayerIndex.get(fPlayer.getFactionId());
-                if (set != null) {
-                    set.remove(uuid);
-                }
-            }
-            // Nettoyer l'index nom
-            String name = fPlayer.getLastKnownName();
-            if (name != null && !name.isEmpty()) {
-                nameIndex.remove(name.toLowerCase());
-            }
-        }
-    }
-    
-    /**
-     * Recherche un FPlayer par nom (insensible à la casse) — O(1) via index
-     */
+    @Deprecated
     public FPlayer getByName(String name) {
-        if (name == null) return null;
-        UUID uuid = nameIndex.get(name.toLowerCase());
-        return uuid != null ? playersCache.get(uuid) : null;
+        return findLoadedByName(name);
     }
-    
-    /**
-     * @return Nombre de joueurs en cache
-     */
+
     public int getCacheSize() {
         return playersCache.size();
     }
-    
-    /**
-     * Sauvegarde tous les joueurs modifiés
-     */
+
     public void saveAll() {
         for (FPlayer fPlayer : playersCache.values()) {
             plugin.getStorageManager().markDirty(fPlayer);
         }
+    }
+
+    private Storage getStorageSafely() {
+        if (plugin.getStorageManager() == null) {
+            return null;
+        }
+        return plugin.getStorageManager().getStorage();
     }
 }

@@ -1,153 +1,316 @@
 package me.krunsh.kfaction.managers;
 
-import me.krunsh.kfaction.Kfaction;
-import me.krunsh.kfaction.data.Faction;
-import me.krunsh.kfaction.hooks.VaultHook;
-
 import org.bukkit.entity.Player;
 
+import me.krunsh.kfaction.Kfaction;
+import me.krunsh.kfaction.data.Faction;
+import me.krunsh.kfaction.economy.MoneyAmount;
+import me.krunsh.kfaction.hooks.VaultHook;
+import me.krunsh.kfaction.services.EconomyService;
+
 /**
- * Gestionnaire de l'économie des factions
- * Gère les comptes de faction et les transactions
- * Intègre Vault pour les transactions de joueurs
+ * Adapter Economy V2.
+ *
+ * Les commandes métier doivent utiliser getService().
+ * Les anciennes méthodes restent disponibles pour compatibilité V1.
  */
 public class EconomyManager {
-    
+
     private final Kfaction plugin;
-    
+    private final EconomyService service;
+
     public EconomyManager(Kfaction plugin) {
+        if (plugin == null) {
+            throw new IllegalArgumentException(
+                    "plugin cannot be null"
+            );
+        }
+
         this.plugin = plugin;
+        this.service =
+                new EconomyService(
+                        plugin,
+                        this
+                );
     }
-    
-    /**
-     * Initialise le manager
-     */
+
     public void initialize() {
-        plugin.getLogger().info("EconomyManager initialisé");
+        service.initialize();
+
+        plugin.getLogger().info(
+                "EconomyManager V2 initialisé "
+                        + "(minor units + transactional service)"
+        );
     }
-    
-    /**
-     * Ferme le manager
-     */
+
     public void shutdown() {
-        // Rien à faire
+        service.shutdown();
     }
-    
-    // ==================== PLAYER ECONOMY (Vault) ====================
-    
-    /**
-     * Vérifie si un joueur a assez d'argent
-     * @param player Le joueur
-     * @param amount Le montant
-     * @return true si suffisant
-     */
-    public boolean has(Player player, double amount) {
-        VaultHook vault = plugin.getHookManager().getVaultHook();
-        if (vault == null || !vault.isEnabled()) {
-            return true; // Pas d'économie = toujours vrai
-        }
-        return vault.has(player, amount);
+
+    public EconomyService getService() {
+        return service;
     }
-    
-    /**
-     * Retire de l'argent du compte d'un joueur
-     * @param player Le joueur
-     * @param amount Le montant
-     * @return true si réussi
-     */
-    public boolean withdraw(Player player, double amount) {
-        VaultHook vault = plugin.getHookManager().getVaultHook();
-        if (vault == null || !vault.isEnabled()) {
-            return true; // Pas d'économie = succès silencieux
-        }
-        return vault.withdraw(player, amount);
+
+    // ============================================================
+    // Player economy / Vault adapter
+    // ============================================================
+
+    public boolean isPlayerEconomyAvailable() {
+        VaultHook vault =
+                getVault();
+
+        return vault != null
+                && vault.isEnabled();
     }
-    
+
     /**
-     * Dépose de l'argent sur le compte d'un joueur
-     * @param player Le joueur
-     * @param amount Le montant
-     * @return true si réussi
+     * Compatibilité V1:
+     * sans économie, has() reste true comme auparavant.
+     *
+     * EconomyService n'utilise jamais ce comportement silencieux:
+     * il vérifie isPlayerEconomyAvailable() avant une transaction.
      */
-    public boolean deposit(Player player, double amount) {
-        VaultHook vault = plugin.getHookManager().getVaultHook();
-        if (vault == null || !vault.isEnabled()) {
-            return true; // Pas d'économie = succès silencieux
+    public boolean has(
+            Player player,
+            double amount
+    ) {
+        VaultHook vault =
+                getVault();
+
+        if (vault == null
+                || !vault.isEnabled()) {
+            return true;
         }
-        return vault.deposit(player, amount);
+
+        return vault.has(
+                player,
+                amount
+        );
     }
-    
-    /**
-     * Obtient le solde d'un joueur
-     * @param player Le joueur
-     * @return Le solde
-     */
-    public double getBalance(Player player) {
-        VaultHook vault = plugin.getHookManager().getVaultHook();
-        if (vault == null || !vault.isEnabled()) {
-            return 0.0;
+
+    public boolean withdraw(
+            Player player,
+            double amount
+    ) {
+        VaultHook vault =
+                getVault();
+
+        if (vault == null
+                || !vault.isEnabled()) {
+            return true;
         }
+
+        return vault.withdraw(
+                player,
+                amount
+        );
+    }
+
+    public boolean deposit(
+            Player player,
+            double amount
+    ) {
+        VaultHook vault =
+                getVault();
+
+        if (vault == null
+                || !vault.isEnabled()) {
+            return true;
+        }
+
+        return vault.deposit(
+                player,
+                amount
+        );
+    }
+
+    public double getBalance(
+            Player player
+    ) {
+        VaultHook vault =
+                getVault();
+
+        if (vault == null
+                || !vault.isEnabled()) {
+            return 0.0D;
+        }
+
         return vault.getBalance(player);
     }
-    
-    // ==================== FACTION ECONOMY ====================
-    
-    /**
-     * Obtient le solde d'une faction
-     * @param faction La faction
-     * @return Le solde
-     */
-    public double getBalance(Faction faction) {
-        return faction != null ? faction.getBalance() : 0.0;
+
+    public String format(
+            double amount
+    ) {
+        VaultHook vault =
+                getVault();
+
+        if (vault == null
+                || !vault.isEnabled()) {
+            return MoneyAmount
+                    .fromLegacyDouble(amount)
+                    .toPlainString();
+        }
+
+        return vault.format(amount);
     }
-    
+
+    // ============================================================
+    // Faction economy compatibility
+    // ============================================================
+
+    public double getBalance(
+            Faction faction
+    ) {
+        return faction != null
+                ? faction.getBalance()
+                : 0.0D;
+    }
+
+    public long getBalanceMinor(
+            Faction faction
+    ) {
+        return faction != null
+                ? faction.getBankMinor()
+                : 0L;
+    }
+
+    public boolean deposit(
+            Faction faction,
+            double amount
+    ) {
+        if (faction == null) {
+            return false;
+        }
+
+        MoneyAmount money =
+                MoneyAmount.fromLegacyDouble(
+                        amount
+                );
+
+        if (!money.isPositive()) {
+            return false;
+        }
+
+        boolean success =
+                faction.tryDepositMinor(
+                        money.getMinorUnits()
+                );
+
+        if (success) {
+            plugin.getStorageManager()
+                    .markDirty(faction);
+        }
+
+        return success;
+    }
+
+    public boolean withdraw(
+            Faction faction,
+            double amount
+    ) {
+        if (faction == null) {
+            return false;
+        }
+
+        MoneyAmount money =
+                MoneyAmount.fromLegacyDouble(
+                        amount
+                );
+
+        if (!money.isPositive()) {
+            return false;
+        }
+
+        boolean success =
+                faction.tryWithdrawMinor(
+                        money.getMinorUnits()
+                );
+
+        if (success) {
+            plugin.getStorageManager()
+                    .markDirty(faction);
+        }
+
+        return success;
+    }
+
+    public boolean canAfford(
+            Faction faction,
+            double amount
+    ) {
+        if (faction == null) {
+            return false;
+        }
+
+        MoneyAmount money =
+                MoneyAmount.fromLegacyDouble(
+                        amount
+                );
+
+        return money.isPositive()
+                && faction.getBankMinor()
+                        >= money.getMinorUnits();
+    }
+
     /**
-     * Dépose de l'argent dans le compte d'une faction
-     * @param faction La faction
-     * @param amount Le montant
-     * @return true si réussi
+     * Wrapper V1 atomique sur le domaine faction.
+     *
+     * Pour les nouveaux appels applicatifs, utiliser EconomyService.
      */
-    public boolean deposit(Faction faction, double amount) {
-        if (faction == null || amount <= 0) return false;
-        faction.setBank(faction.getBank() + amount);
-        plugin.getStorageManager().markDirty(faction);
+    public boolean transfer(
+            Faction from,
+            Faction to,
+            double amount
+    ) {
+        if (from == null
+                || to == null
+                || from == to) {
+            return false;
+        }
+
+        MoneyAmount money =
+                MoneyAmount.fromLegacyDouble(
+                        amount
+                );
+
+        if (!money.isPositive()
+                || !from.tryWithdrawMinor(
+                        money.getMinorUnits()
+                )) {
+            return false;
+        }
+
+        if (!to.tryDepositMinor(
+                money.getMinorUnits()
+        )) {
+            if (!from.tryDepositMinor(
+                    money.getMinorUnits()
+            )) {
+                plugin.getLogger().severe(
+                        "[Economy] rollback faction transfer impossible "
+                                + "from="
+                                + from.getId()
+                                + " to="
+                                + to.getId()
+                );
+            }
+
+            return false;
+        }
+
+        plugin.getStorageManager()
+                .markDirty(from);
+
+        plugin.getStorageManager()
+                .markDirty(to);
+
         return true;
     }
-    
-    /**
-     * Retire de l'argent du compte d'une faction
-     * @param faction La faction
-     * @param amount Le montant
-     * @return true si réussi
-     */
-    public boolean withdraw(Faction faction, double amount) {
-        if (faction == null || amount <= 0) return false;
-        if (faction.getBank() < amount) return false;
-        faction.setBank(faction.getBank() - amount);
-        plugin.getStorageManager().markDirty(faction);
-        return true;
-    }
-    
-    /**
-     * Vérifie si une faction peut se permettre un montant
-     * @param faction La faction
-     * @param amount Le montant
-     * @return true si suffisant
-     */
-    public boolean canAfford(Faction faction, double amount) {
-        return faction != null && faction.getBank() >= amount;
-    }
-    
-    /**
-     * Transfère de l'argent d'une faction à une autre
-     * @param from Faction source
-     * @param to Faction destination
-     * @param amount Montant
-     * @return true si réussi
-     */
-    public boolean transfer(Faction from, Faction to, double amount) {
-        if (!canAfford(from, amount)) return false;
-        if (!withdraw(from, amount)) return false;
-        return deposit(to, amount);
+
+    private VaultHook getVault() {
+        return plugin.getHookManager() != null
+                ? plugin.getHookManager()
+                        .getVaultHook()
+                : null;
     }
 }

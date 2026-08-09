@@ -12,12 +12,12 @@ import org.junit.Test;
 
 public class BundledProgressionExampleTest {
     @Test
-    public void bundledExampleAlwaysPassesTheStrictLoader() throws Exception {
-        File candidate = File.createTempFile("kfaction-progression-example", ".yml");
+    public void bundledActiveProgressionAlwaysPassesTheStrictLoader() throws Exception {
+        File candidate = File.createTempFile("kfaction-progression-active", ".yml");
         candidate.deleteOnExit();
         try (InputStream input = getClass().getClassLoader()
-                .getResourceAsStream("progression.example.yml")) {
-            assertTrue("progression.example.yml absent du JAR", input != null);
+                .getResourceAsStream("progression.yml")) {
+            assertTrue("progression.yml absent du JAR", input != null);
             Files.copy(input, candidate.toPath(), StandardCopyOption.REPLACE_EXISTING);
         }
 
@@ -27,6 +27,6 @@ public class BundledProgressionExampleTest {
 
         assertTrue(result.getIssues().toString(), result.isValid());
         assertEquals(2, result.getConfig().getLevels().size());
-        assertEquals(3, result.getConfig().getTiers().size());
+        assertEquals(4, result.getConfig().getTiers().size());
     }
 }

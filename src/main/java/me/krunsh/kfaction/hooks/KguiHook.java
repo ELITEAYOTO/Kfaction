@@ -135,7 +135,7 @@ public class KguiHook {
                         "initializeForPlayer", Player.class, menuDataClass, List.class
                     );
                     
-                    plugin.getLogger().info("KguiHook pagination support enabled!");
+                    me.krunsh.kfaction.utils.KfactionLogger.debug(plugin, "Kgui pagination support: ACTIVE");
                 }
             }
             
@@ -143,13 +143,17 @@ public class KguiHook {
             initializeContentProviderApi(kgui, kguiClass);
             
             initialized = true;
-            plugin.getLogger().info("KguiHook initialized - GUI avancés activés!");
+            me.krunsh.kfaction.utils.KfactionLogger.debug(plugin, "KguiHook: ACTIVE");
             
         } catch (Exception e) {
             initialized = false;
             plugin.getLogger().warning("Failed to initialize KguiHook: " + e.getMessage());
             if (plugin.isDebugMode()) {
-                e.printStackTrace();
+                plugin.getLogger().log(
+                        java.util.logging.Level.WARNING,
+                        "Stacktrace KguiHook",
+                        e
+                );
             }
         }
     }
@@ -197,15 +201,19 @@ public class KguiHook {
             registerClaimsProvider(dynamicContentProviderClass);
             
             this.contentProviderApiEnabled = true;
-            plugin.getLogger().info("KguiHook Content Provider API enabled! Providers: kfaction_logs, kfaction_members, kfaction_warps, kfaction_claims");
+            me.krunsh.kfaction.utils.KfactionLogger.debug(plugin, "Kgui Content Provider API: ACTIVE");
             
         } catch (ClassNotFoundException e) {
             // ContentProvider API non disponible (ancienne version de Kgui)
-            plugin.getLogger().info("Content Provider API not available - using legacy injection");
+            me.krunsh.kfaction.utils.KfactionLogger.debug(plugin, "Kgui Content Provider API absent: fallback legacy injection.");
         } catch (Exception e) {
             plugin.getLogger().warning("Failed to initialize Content Provider API: " + e.getMessage());
             if (plugin.isDebugMode()) {
-                e.printStackTrace();
+                plugin.getLogger().log(
+                        java.util.logging.Level.WARNING,
+                        "Stacktrace KguiHook",
+                        e
+                );
             }
         }
     }
@@ -890,7 +898,11 @@ public class KguiHook {
         } catch (Exception e) {
             if (plugin.isDebugMode()) {
                 plugin.getLogger().warning("Error opening logs menu with content: " + e.getMessage());
-                e.printStackTrace();
+                plugin.getLogger().log(
+                        java.util.logging.Level.WARNING,
+                        "Stacktrace KguiHook",
+                        e
+                );
             }
             // Fallback
             return openMenu(player, menuId);

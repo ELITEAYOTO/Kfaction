@@ -1,350 +1,956 @@
 package me.krunsh.kfaction.managers;
 
+import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
 import me.krunsh.kfaction.Kfaction;
 import me.krunsh.kfaction.data.Faction;
 import me.krunsh.kfaction.data.Relation;
+import me.krunsh.kfaction.utils.KfactionLogger;
 
 /**
- * Gestionnaire des relations entre factions
- * Gère les demandes de relation et leur validation
+ * Gestionnaire canonique des relations entre factions.
+ *
+ * Lot25D:
+ * - config V2 réellement utilisée;
+ * - limites ALLY/TRUCE vérifiées sur les deux factions;
+ * - demandes typées (ALLY != TRUCE);
+ * - expiration configurable et persistée proprement;
+ * - relation ALLY/TRUCE toujours symétrique, même sans validation mutuelle;
+ * - ENEMY volontairement unilatéral;
+ * - notifications alignées sur messages.yml.
  */
 public class RelationManager {
-    
+
     private final Kfaction plugin;
-    
-    // Configuration des limites
+
     private int maxAllies;
     private int maxEnemies;
     private int maxTruces;
+
+    private boolean allyEnabled;
+    private boolean enemyEnabled;
+    private boolean truceEnabled;
+
     private boolean requireMutualAlliance;
     private boolean requireMutualTruce;
+
     private long requestExpirationMs;
-    
-    public RelationManager(Kfaction plugin) {
+
+    public RelationManager(
+            Kfaction plugin
+    ) {
         this.plugin = plugin;
     }
-    
-    /**
-     * Initialise le manager
-     */
+
     public void initialize() {
         loadConfig();
-        plugin.getLogger().info("RelationManager initialisé");
+
+        KfactionLogger.debug(
+                plugin,
+                "RelationManager: allies="
+                        + maxAllies
+                        + ", truces="
+                        + maxTruces
+                        + ", enemies="
+                        + maxEnemies
+                        + ", requestExpirationMs="
+                        + requestExpirationMs
+        );
     }
-    
-    /**
-     * Charge la configuration
-     */
+
     public void loadConfig() {
-        maxAllies = plugin.getConfigManager().getInt("relations.max-allies", 5);
-        maxEnemies = plugin.getConfigManager().getInt("relations.max-enemies", 10);
-        maxTruces = plugin.getConfigManager().getInt("relations.max-truces", 3);
-        requireMutualAlliance = plugin.getConfigManager().getBoolean("relations.require-mutual-alliance", true);
-        requireMutualTruce = plugin.getConfigManager().getBoolean("relations.require-mutual-truce", true);
-        requestExpirationMs = plugin.getConfigManager().getLong("relations.request-expiration-seconds", 300) * 1000;
+        allyEnabled =
+                plugin.getConfigManager()
+                        .getBoolean(
+                                "relations.ally.enabled",
+                                true
+                        );
+
+        maxAllies =
+                plugin.getConfigManager()
+                        .getInt(
+                                "relations.ally.max-per-faction",
+                                3
+                        );
+
+        requireMutualAlliance =
+                plugin.getConfigManager()
+                        .getBoolean(
+                                "relations.ally.require-mutual",
+                                true
+                        );
+
+        truceEnabled =
+                plugin.getConfigManager()
+                        .getBoolean(
+                                "relations.truce.enabled",
+                                true
+                        );
+
+        maxTruces =
+                plugin.getConfigManager()
+                        .getInt(
+                                "relations.truce.max-per-faction",
+                                5
+                        );
+
+        requireMutualTruce =
+                plugin.getConfigManager()
+                        .getBoolean(
+                                "relations.truce.require-mutual",
+                                true
+                        );
+
+        enemyEnabled =
+                plugin.getConfigManager()
+                        .getBoolean(
+                                "relations.enemy.enabled",
+                                true
+                        );
+
+        maxEnemies =
+                plugin.getConfigManager()
+                        .getInt(
+                                "relations.enemy.max-per-faction",
+                                10
+                        );
+
+        requestExpirationMs =
+                Math.max(
+                        1L,
+                        plugin.getConfigManager()
+                                .getLong(
+                                        "relations.request-expiration-seconds",
+                                        300L
+                                )
+                ) * 1000L;
     }
-    
-    // === Demandes de relation ===
-    
-    /**
-     * Résultat d'une demande de relation
-     */
+
+    // ============================================================
+    // Results
+    // ============================================================
+
     public enum RelationResult {
         SUCCESS("Relation établie"),
         REQUEST_SENT("Demande envoyée"),
-        REQUEST_PENDING("Une demande est déjà en attente"),
+        REQUEST_PENDING("Une demande est déjà en attente entre ces factions"),
         ALREADY_SET("Cette relation existe déjà"),
         LIMIT_REACHED("Limite de relations atteinte"),
+        DISABLED("Ce type de relation est désactivé"),
         CANNOT_SELF("Vous ne pouvez pas établir de relation avec votre propre faction"),
         NO_PERMISSION("Vous n'avez pas la permission"),
-        NOT_FOUND("Faction non trouvée");
-        
+        NOT_FOUND("Faction non trouvée"),
+        UNAVAILABLE("Cette mutation doit être exécutée sur le thread principal");
+
         private final String message;
-        
-        RelationResult(String message) {
+
+        RelationResult(
+                String message
+        ) {
             this.message = message;
         }
-        
+
         public String getMessage() {
             return message;
         }
-        
+
         public boolean isSuccess() {
-            return this == SUCCESS || this == REQUEST_SENT;
+            return this == SUCCESS
+                    || this == REQUEST_SENT;
         }
     }
-    
-    /**
-     * Demande ou établit une relation d'alliance
-     * @param requesting La faction qui demande
-     * @param target La faction cible
-     * @return Le résultat de l'opération
-     */
-    public RelationResult requestAlly(Faction requesting, Faction target) {
-        return requestRelation(requesting, target, Relation.ALLY);
+
+    // ============================================================
+    // Public mutations
+    // ============================================================
+
+    public RelationResult requestAlly(
+            Faction requesting,
+            Faction target
+    ) {
+        return requestRelation(
+                requesting,
+                target,
+                Relation.ALLY
+        );
     }
-    
-    /**
-     * Demande ou établit une relation de trêve
-     * @param requesting La faction qui demande
-     * @param target La faction cible
-     * @return Le résultat de l'opération
-     */
-    public RelationResult requestTruce(Faction requesting, Faction target) {
-        return requestRelation(requesting, target, Relation.TRUCE);
+
+    public RelationResult requestTruce(
+            Faction requesting,
+            Faction target
+    ) {
+        return requestRelation(
+                requesting,
+                target,
+                Relation.TRUCE
+        );
     }
-    
+
     /**
-     * Déclare une faction comme ennemi (unilatéral)
-     * @param requesting La faction qui déclare
-     * @param target La faction cible
-     * @return Le résultat de l'opération
+     * ENEMY reste volontairement unilatéral.
+     *
+     * PermissionService.resolveEffectiveRelation() traite ENEMY comme effectif
+     * si l'un OU l'autre côté l'a déclaré.
      */
-    public RelationResult declareEnemy(Faction requesting, Faction target) {
-        // Vérification de base
-        if (requesting == null || target == null) {
-            return RelationResult.NOT_FOUND;
+    public RelationResult declareEnemy(
+            Faction requesting,
+            Faction target
+    ) {
+        if (!Bukkit.isPrimaryThread()) {
+            return RelationResult.UNAVAILABLE;
         }
-        if (requesting.getId().equals(target.getId())) {
-            return RelationResult.CANNOT_SELF;
+
+        RelationResult basic =
+                validatePair(
+                        requesting,
+                        target
+                );
+
+        if (basic != null) {
+            return basic;
         }
-        
-        // Vérifier la limite
-        if (requesting.getEnemies().size() >= maxEnemies) {
+
+        if (!enemyEnabled) {
+            return RelationResult.DISABLED;
+        }
+
+        if (requesting.getRelationTo(
+                target
+        ) == Relation.ENEMY) {
+            return RelationResult.ALREADY_SET;
+        }
+
+        if (atLimit(
+                requesting,
+                Relation.ENEMY
+        )) {
             return RelationResult.LIMIT_REACHED;
         }
-        
-        // Vérifier si déjà ennemi
-        if (requesting.getRelationTo(target) == Relation.ENEMY) {
-            return RelationResult.ALREADY_SET;
-        }
-        
-        // Établir la relation (unilatérale)
-        requesting.setRelation(target.getId(), Relation.ENEMY);
-        plugin.getStorageManager().markDirty(requesting);
-        
-        // Notifier les deux factions
-        notifyRelationChange(requesting, target, Relation.ENEMY, true);
-        
+
+        clearPendingBetween(
+                requesting,
+                target
+        );
+
+        requesting.setRelation(
+                target.getId(),
+                Relation.ENEMY
+        );
+
+        plugin.getStorageManager()
+                .markDirty(
+                        requesting
+                );
+
+        notifyEnemy(
+                requesting,
+                target
+        );
+
         return RelationResult.SUCCESS;
     }
-    
+
     /**
-     * Revient à la neutralité avec une faction
-     * @param requesting La faction qui demande
-     * @param target La faction cible
-     * @return Le résultat de l'opération
+     * Revenir à NEUTRAL retire la relation dans les DEUX sens.
+     *
+     * C'est nécessaire même si ENEMY était auparavant unilatéral.
      */
-    public RelationResult setNeutral(Faction requesting, Faction target) {
-        if (requesting == null || target == null) {
-            return RelationResult.NOT_FOUND;
+    public RelationResult setNeutral(
+            Faction requesting,
+            Faction target
+    ) {
+        if (!Bukkit.isPrimaryThread()) {
+            return RelationResult.UNAVAILABLE;
         }
-        if (requesting.getId().equals(target.getId())) {
-            return RelationResult.CANNOT_SELF;
+
+        RelationResult basic =
+                validatePair(
+                        requesting,
+                        target
+                );
+
+        if (basic != null) {
+            return basic;
         }
-        
-        Relation currentRelation = requesting.getRelationTo(target);
-        if (currentRelation == Relation.NEUTRAL) {
+
+        Relation requestingView =
+                requesting.getRelationTo(
+                        target
+                );
+
+        Relation targetView =
+                target.getRelationTo(
+                        requesting
+                );
+
+        if (requestingView == Relation.NEUTRAL
+                && targetView == Relation.NEUTRAL
+                && !hasPendingBetween(
+                        requesting,
+                        target
+                )) {
             return RelationResult.ALREADY_SET;
         }
-        
-        // Retirer la relation
-        requesting.setRelation(target.getId(), Relation.NEUTRAL);
-        target.setRelation(requesting.getId(), Relation.NEUTRAL);
-        
-        plugin.getStorageManager().markDirty(requesting);
-        plugin.getStorageManager().markDirty(target);
-        
-        // Notifier
-        notifyRelationChange(requesting, target, Relation.NEUTRAL, false);
-        
+
+        clearPendingBetween(
+                requesting,
+                target
+        );
+
+        requesting.setRelation(
+                target.getId(),
+                Relation.NEUTRAL
+        );
+
+        target.setRelation(
+                requesting.getId(),
+                Relation.NEUTRAL
+        );
+
+        plugin.getStorageManager()
+                .markDirty(
+                        requesting
+                );
+
+        plugin.getStorageManager()
+                .markDirty(
+                        target
+                );
+
+        notifyNeutral(
+                requesting,
+                target
+        );
+
         return RelationResult.SUCCESS;
     }
-    
-    /**
-     * Gère une demande de relation bilatérale
-     */
-    private RelationResult requestRelation(Faction requesting, Faction target, Relation relation) {
-        if (requesting == null || target == null) {
-            return RelationResult.NOT_FOUND;
+
+    // ============================================================
+    // Mutual relations
+    // ============================================================
+
+    private RelationResult requestRelation(
+            Faction requesting,
+            Faction target,
+            Relation relation
+    ) {
+        if (!Bukkit.isPrimaryThread()) {
+            return RelationResult.UNAVAILABLE;
         }
-        if (requesting.getId().equals(target.getId())) {
-            return RelationResult.CANNOT_SELF;
+
+        RelationResult basic =
+                validatePair(
+                        requesting,
+                        target
+                );
+
+        if (basic != null) {
+            return basic;
         }
-        
-        // Vérifier les limites
-        if (relation == Relation.ALLY && requesting.getAllies().size() >= maxAllies) {
+
+        if (!isEnabled(
+                relation
+        )) {
+            return RelationResult.DISABLED;
+        }
+
+        pruneExpired(
+                requesting
+        );
+
+        pruneExpired(
+                target
+        );
+
+        if (requesting.getRelationTo(target)
+                == relation
+                && target.getRelationTo(requesting)
+                        == relation) {
+            return RelationResult.ALREADY_SET;
+        }
+
+        boolean requireMutual =
+                relation == Relation.ALLY
+                        ? requireMutualAlliance
+                        : requireMutualTruce;
+
+        /*
+         * Une relation mutuelle consomme une place chez les DEUX factions.
+         * Le contrôle est répété au moment de l'acceptation.
+         */
+        if (atLimit(
+                requesting,
+                relation
+        )
+                || atLimit(
+                        target,
+                        relation
+                )) {
             return RelationResult.LIMIT_REACHED;
         }
-        
-        // Vérifier si déjà établi
-        if (requesting.getRelationTo(target) == relation) {
-            return RelationResult.ALREADY_SET;
-        }
-        
-        // Vérifier si une demande existe de l'autre côté
-        boolean requireMutual = (relation == Relation.ALLY && requireMutualAlliance) ||
-                               (relation == Relation.TRUCE && requireMutualTruce);
-        
-        if (requireMutual) {
-            if (target.hasRelationRequest(requesting.getId())) {
-                // L'autre faction a aussi demandé = acceptation mutuelle
-                target.removeRelationRequest(requesting.getId());
-                
-                // Établir la relation pour les deux
-                requesting.setRelation(target.getId(), relation);
-                target.setRelation(requesting.getId(), relation);
-                
-                plugin.getStorageManager().markDirty(requesting);
-                plugin.getStorageManager().markDirty(target);
-                
-                notifyRelationChange(requesting, target, relation, true);
-                return RelationResult.SUCCESS;
-            } else {
-                // Envoyer une demande
-                if (requesting.hasRelationRequest(target.getId())) {
-                    return RelationResult.REQUEST_PENDING;
-                }
-                
-                requesting.addRelationRequest(target.getId());
-                plugin.getStorageManager().markDirty(requesting);
-                
-                notifyRelationRequest(requesting, target, relation);
-                return RelationResult.REQUEST_SENT;
-            }
-        } else {
-            // Pas besoin de réciprocité
-            requesting.setRelation(target.getId(), relation);
-            plugin.getStorageManager().markDirty(requesting);
-            
-            notifyRelationChange(requesting, target, relation, true);
+
+        if (!requireMutual) {
+            clearPendingBetween(
+                    requesting,
+                    target
+            );
+
+            establishMutual(
+                    requesting,
+                    target,
+                    relation
+            );
+
+            notifyEstablished(
+                    requesting,
+                    target,
+                    relation
+            );
+
             return RelationResult.SUCCESS;
         }
-    }
-    
-    // === Notifications ===
-    
-    /**
-     * Notifie un changement de relation
-     */
-    private void notifyRelationChange(Faction faction1, Faction faction2, Relation relation, boolean mutual) {
-        String msgKey;
-        switch (relation) {
-            case ALLY:
-                msgKey = "relations.now-allies";
-                break;
-            case ENEMY:
-                msgKey = mutual ? "relations.now-enemies" : "relations.declared-enemy";
-                break;
-            case TRUCE:
-                msgKey = "relations.now-truce";
-                break;
-            case NEUTRAL:
-                msgKey = "relations.now-neutral";
-                break;
-            default:
-                return;
+
+        /*
+         * Le target est l'ancien demandeur si sa demande typée correspond
+         * exactement à la relation demandée maintenant.
+         */
+        if (target.hasRelationRequest(
+                requesting.getId(),
+                relation
+        )) {
+            clearPendingBetween(
+                    requesting,
+                    target
+            );
+
+            establishMutual(
+                    requesting,
+                    target,
+                    relation
+            );
+
+            notifyAccepted(
+                    target,
+                    requesting,
+                    relation
+            );
+
+            return RelationResult.SUCCESS;
         }
-        
-        String msg1 = plugin.getMessageManager().get(msgKey, "{faction}", faction2.getName());
-        String msg2 = plugin.getMessageManager().get(msgKey, "{faction}", faction1.getName());
-        
-        faction1.broadcast(msg1);
-        if (mutual) {
-            faction2.broadcast(msg2);
+
+        /*
+         * Une autre proposition entre les mêmes factions doit être résolue
+         * avant d'en créer une nouvelle. Cela évite les états ambigus.
+         */
+        if (requesting.hasAnyRelationRequestForFaction(
+                target.getId()
+        )
+                || target.hasAnyRelationRequestForFaction(
+                        requesting.getId()
+                )) {
+            return RelationResult.REQUEST_PENDING;
+        }
+
+        requesting.addRelationRequest(
+                target.getId(),
+                relation
+        );
+
+        plugin.getStorageManager()
+                .markDirty(
+                        requesting
+                );
+
+        notifyRequestReceived(
+                requesting,
+                target,
+                relation
+        );
+
+        return RelationResult.REQUEST_SENT;
+    }
+
+    private void establishMutual(
+            Faction first,
+            Faction second,
+            Relation relation
+    ) {
+        first.setRelation(
+                second.getId(),
+                relation
+        );
+
+        second.setRelation(
+                first.getId(),
+                relation
+        );
+
+        plugin.getStorageManager()
+                .markDirty(
+                        first
+                );
+
+        plugin.getStorageManager()
+                .markDirty(
+                        second
+                );
+    }
+
+    // ============================================================
+    // Pending requests
+    // ============================================================
+
+    private void pruneExpired(
+            Faction faction
+    ) {
+        if (faction != null
+                && faction.pruneExpiredRelationRequests(
+                        requestExpirationMs
+                )) {
+            plugin.getStorageManager()
+                    .markDirty(
+                            faction
+                    );
         }
     }
-    
-    /**
-     * Notifie une demande de relation
-     */
-    private void notifyRelationRequest(Faction requesting, Faction target, Relation relation) {
-        String msgKey = relation == Relation.ALLY ? "relations.ally-request" : "relations.truce-request";
-        
-        String requestingMsg = plugin.getMessageManager().get(msgKey + "-sent", "{faction}", target.getName());
-        String targetMsg = plugin.getMessageManager().get(msgKey + "-received", "{faction}", requesting.getName());
-        
-        requesting.broadcast(requestingMsg);
-        target.broadcast(targetMsg);
+
+    private boolean hasPendingBetween(
+            Faction first,
+            Faction second
+    ) {
+        return first != null
+                && second != null
+                && (first.hasAnyRelationRequestForFaction(
+                        second.getId()
+                )
+                || second.hasAnyRelationRequestForFaction(
+                        first.getId()
+                ));
     }
-    
-    // === Utilitaires ===
-    
-    /**
-     * Obtient la relation entre deux joueurs
-     * @param player1 Premier joueur
-     * @param player2 Deuxième joueur
-     * @return La relation
-     */
-    public Relation getRelation(Player player1, Player player2) {
-        Faction faction1 = plugin.getFactionManager().getPlayerFaction(player1);
-        Faction faction2 = plugin.getFactionManager().getPlayerFaction(player2);
-        
-        if (faction1 == null || faction2 == null) {
-            return Relation.NEUTRAL;
+
+    private void clearPendingBetween(
+            Faction first,
+            Faction second
+    ) {
+        if (first == null
+                || second == null) {
+            return;
         }
-        
-        return faction1.getRelationTo(faction2);
+
+        if (first.removeRelationRequestsForFaction(
+                second.getId()
+        )) {
+            plugin.getStorageManager()
+                    .markDirty(
+                            first
+                    );
+        }
+
+        if (second.removeRelationRequestsForFaction(
+                first.getId()
+        )) {
+            plugin.getStorageManager()
+                    .markDirty(
+                            second
+                    );
+        }
     }
-    
-    /**
-     * Vérifie si deux joueurs sont alliés
-     */
-    public boolean areAllies(Player player1, Player player2) {
-        Relation rel = getRelation(player1, player2);
-        return rel == Relation.ALLY || rel == Relation.MEMBER;
+
+    // ============================================================
+    // Limits / config
+    // ============================================================
+
+    private RelationResult validatePair(
+            Faction first,
+            Faction second
+    ) {
+        if (first == null
+                || second == null
+                || first.isSystemFaction()
+                || second.isSystemFaction()) {
+            return RelationResult.NOT_FOUND;
+        }
+
+        if (first.getId()
+                .equals(
+                        second.getId()
+                )) {
+            return RelationResult.CANNOT_SELF;
+        }
+
+        return null;
     }
-    
-    /**
-     * Vérifie si deux joueurs sont ennemis
-     */
-    public boolean areEnemies(Player player1, Player player2) {
-        return getRelation(player1, player2) == Relation.ENEMY;
+
+    private boolean isEnabled(
+            Relation relation
+    ) {
+        if (relation == Relation.ALLY) {
+            return allyEnabled;
+        }
+
+        if (relation == Relation.TRUCE) {
+            return truceEnabled;
+        }
+
+        if (relation == Relation.ENEMY) {
+            return enemyEnabled;
+        }
+
+        return true;
     }
-    
-    /**
-     * Vérifie si deux joueurs sont dans la même faction
-     */
-    public boolean areSameFaction(Player player1, Player player2) {
-        Faction faction1 = plugin.getFactionManager().getPlayerFaction(player1);
-        Faction faction2 = plugin.getFactionManager().getPlayerFaction(player2);
-        
-        if (faction1 == null || faction2 == null) {
+
+    private boolean atLimit(
+            Faction faction,
+            Relation relation
+    ) {
+        int maximum =
+                maxFor(
+                        relation
+                );
+
+        if (maximum < 0) {
             return false;
         }
-        
-        return faction1.getId().equals(faction2.getId());
+
+        int current;
+
+        if (relation == Relation.ALLY) {
+            current =
+                    faction.getAllies()
+                            .size();
+
+        } else if (relation == Relation.TRUCE) {
+            current =
+                    faction.getTruces()
+                            .size();
+
+        } else if (relation == Relation.ENEMY) {
+            current =
+                    faction.getEnemies()
+                            .size();
+
+        } else {
+            return false;
+        }
+
+        return current >= maximum;
     }
-    
-    // === Getters config ===
-    
+
+    private int maxFor(
+            Relation relation
+    ) {
+        if (relation == Relation.ALLY) {
+            return maxAllies;
+        }
+
+        if (relation == Relation.TRUCE) {
+            return maxTruces;
+        }
+
+        if (relation == Relation.ENEMY) {
+            return maxEnemies;
+        }
+
+        return -1;
+    }
+
+    // ============================================================
+    // Notifications
+    // ============================================================
+
+    /**
+     * Lors d'une demande, l'acteur reçoit déjà la confirmation de commande.
+     * Seule la faction cible doit donc recevoir le broadcast métier.
+     */
+    private void notifyRequestReceived(
+            Faction requesting,
+            Faction target,
+            Relation relation
+    ) {
+        String key =
+                relation == Relation.ALLY
+                        ? "relation.ally-request-received"
+                        : "relation.truce-request-received";
+
+        target.broadcast(
+                plugin.getMessageManager()
+                        .get(
+                                key,
+                                "{faction}",
+                                requesting.getName()
+                        )
+        );
+    }
+
+    private void notifyAccepted(
+            Faction originalRequester,
+            Faction accepter,
+            Relation relation
+    ) {
+        String acceptedKey =
+                relation == Relation.ALLY
+                        ? "relation.ally-accepted"
+                        : "relation.truce-accepted";
+
+        String establishedKey =
+                relation == Relation.ALLY
+                        ? "relation.ally-established"
+                        : "relation.truce-established";
+
+        originalRequester.broadcast(
+                plugin.getMessageManager()
+                        .get(
+                                acceptedKey,
+                                "{faction}",
+                                accepter.getName()
+                        )
+        );
+
+        accepter.broadcast(
+                plugin.getMessageManager()
+                        .get(
+                                establishedKey,
+                                "{faction}",
+                                originalRequester.getName()
+                        )
+        );
+    }
+
+    private void notifyEstablished(
+            Faction first,
+            Faction second,
+            Relation relation
+    ) {
+        String key =
+                relation == Relation.ALLY
+                        ? "relation.ally-established"
+                        : "relation.truce-established";
+
+        first.broadcast(
+                plugin.getMessageManager()
+                        .get(
+                                key,
+                                "{faction}",
+                                second.getName()
+                        )
+        );
+
+        second.broadcast(
+                plugin.getMessageManager()
+                        .get(
+                                key,
+                                "{faction}",
+                                first.getName()
+                        )
+        );
+    }
+
+    private void notifyEnemy(
+            Faction requesting,
+            Faction target
+    ) {
+        requesting.broadcast(
+                plugin.getMessageManager()
+                        .get(
+                                "relation.enemy-declared",
+                                "{faction}",
+                                target.getName()
+                        )
+        );
+
+        target.broadcast(
+                plugin.getMessageManager()
+                        .get(
+                                "relation.enemy-received",
+                                "{faction}",
+                                requesting.getName()
+                        )
+        );
+    }
+
+    private void notifyNeutral(
+            Faction requesting,
+            Faction target
+    ) {
+        requesting.broadcast(
+                plugin.getMessageManager()
+                        .get(
+                                "relation.neutral-set",
+                                "{faction}",
+                                target.getName()
+                        )
+        );
+
+        target.broadcast(
+                plugin.getMessageManager()
+                        .get(
+                                "relation.neutral-received",
+                                "{faction}",
+                                requesting.getName()
+                        )
+        );
+    }
+
+    // ============================================================
+    // Read helpers
+    // ============================================================
+
+    public Relation getRelation(
+            Player player1,
+            Player player2
+    ) {
+        Faction faction1 =
+                plugin.getFactionManager()
+                        .getPlayerFaction(
+                                player1
+                        );
+
+        Faction faction2 =
+                plugin.getFactionManager()
+                        .getPlayerFaction(
+                                player2
+                        );
+
+        if (faction1 == null
+                || faction2 == null) {
+            return Relation.NEUTRAL;
+        }
+
+        Relation first =
+                faction1.getRelationTo(
+                        faction2
+                );
+
+        Relation second =
+                faction2.getRelationTo(
+                        faction1
+                );
+
+        if (first == Relation.ENEMY
+                || second == Relation.ENEMY) {
+            return Relation.ENEMY;
+        }
+
+        if (first != Relation.NEUTRAL) {
+            return first;
+        }
+
+        return second != null
+                ? second
+                : Relation.NEUTRAL;
+    }
+
+    public boolean areAllies(
+            Player player1,
+            Player player2
+    ) {
+        Relation relation =
+                getRelation(
+                        player1,
+                        player2
+                );
+
+        return relation == Relation.ALLY
+                || relation == Relation.MEMBER;
+    }
+
+    public boolean areEnemies(
+            Player player1,
+            Player player2
+    ) {
+        return getRelation(
+                player1,
+                player2
+        ) == Relation.ENEMY;
+    }
+
+    public boolean areSameFaction(
+            Player player1,
+            Player player2
+    ) {
+        Faction faction1 =
+                plugin.getFactionManager()
+                        .getPlayerFaction(
+                                player1
+                        );
+
+        Faction faction2 =
+                plugin.getFactionManager()
+                        .getPlayerFaction(
+                                player2
+                        );
+
+        return faction1 != null
+                && faction2 != null
+                && faction1.getId()
+                        .equals(
+                                faction2.getId()
+                        );
+    }
+
     public int getMaxAllies() {
         return maxAllies;
     }
-    
+
     public int getMaxEnemies() {
         return maxEnemies;
     }
-    
+
     public int getMaxTruces() {
         return maxTruces;
     }
-    
+
+    public long getRequestExpirationMs() {
+        return requestExpirationMs;
+    }
+
     /**
-     * Définit deux factions comme ennemies mutuellement
-     * @param faction1 Première faction
-     * @param faction2 Deuxième faction
+     * Compatibilité binaire V1.
+     *
+     * Le code V2 ne doit plus utiliser cette mutation brute.
      */
-    public void setEnemy(Faction faction1, Faction faction2) {
-        if (faction1 == null || faction2 == null) return;
-        if (faction1.getId().equals(faction2.getId())) return;
-        
-        faction1.setRelation(faction2.getId(), Relation.ENEMY);
-        faction2.setRelation(faction1.getId(), Relation.ENEMY);
-        
-        plugin.getStorageManager().markDirty(faction1);
-        plugin.getStorageManager().markDirty(faction2);
+    @Deprecated
+    public void setEnemy(
+            Faction faction1,
+            Faction faction2
+    ) {
+        if (!Bukkit.isPrimaryThread()
+                || faction1 == null
+                || faction2 == null
+                || faction1.getId()
+                        .equals(
+                                faction2.getId()
+                        )) {
+            return;
+        }
+
+        faction1.setRelation(
+                faction2.getId(),
+                Relation.ENEMY
+        );
+
+        faction2.setRelation(
+                faction1.getId(),
+                Relation.ENEMY
+        );
+
+        plugin.getStorageManager()
+                .markDirty(
+                        faction1
+                );
+
+        plugin.getStorageManager()
+                .markDirty(
+                        faction2
+                );
+
+        KfactionLogger.debug(
+                plugin,
+                "RelationManager#setEnemy legacy utilisé pour "
+                        + faction1.getId()
+                        + " <-> "
+                        + faction2.getId()
+        );
     }
 }

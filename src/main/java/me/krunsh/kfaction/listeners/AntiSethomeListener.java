@@ -10,10 +10,12 @@ import me.krunsh.kfaction.Kfaction;
 import me.krunsh.kfaction.data.FLocation;
 import me.krunsh.kfaction.data.Faction;
 import me.krunsh.kfaction.data.Relation;
+import me.krunsh.kfaction.permissions.TerritoryAction;
+import me.krunsh.kfaction.zones.ZoneDefinition;
 
 /**
  * Bloque /sethome pour les ennemis dans les claims de factions 
- * qui ont débloqué la récompense Anti-Sethome (Niveau 2)
+ * qui ont débloqué la récompense Anti-Sethome via progression.yml
  * 
  * Hook Essentials: intercepte la commande pré-traitement
  */
@@ -30,13 +32,24 @@ public class AntiSethomeListener implements Listener {
     }
     
     public void loadConfig() {
-        java.io.File file = new java.io.File(plugin.getDataFolder(), "levels.yml");
-        if (file.exists()) {
-            org.bukkit.configuration.file.YamlConfiguration config = 
-                org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(file);
-            blockEnemies = config.getBoolean("anti-sethome.block-enemies", true);
-            blockNeutrals = config.getBoolean("anti-sethome.block-neutrals", false);
-        }
+        blockEnemies =
+                plugin.getConfigManager()
+                        .getBoolean(
+                                "anti-sethome.block-enemies",
+                                true
+                        );
+
+        blockNeutrals =
+                plugin.getConfigManager()
+                        .getBoolean(
+                                "anti-sethome.block-neutrals",
+                                false
+                        );
+
+        me.krunsh.kfaction.utils.KfactionLogger.debug(
+                plugin,
+                "Anti-Sethome config chargée depuis config.yml."
+        );
     }
     
     /**
@@ -55,19 +68,59 @@ public class AntiSethomeListener implements Listener {
         if (player.hasPermission("kfaction.admin.bypass")) return;
         
         // Vérifier le chunk actuel
-        FLocation fLoc = new FLocation(player.getLocation());
-        Faction claimOwner = plugin.getClaimManager().getFactionAt(fLoc);
-        
-        // Si le chunk n'est pas claim, laisser passer
-        if (claimOwner == null || claimOwner.isWilderness()) return;
-        
-        // Factions système (safezone/warzone) - bloquer pour tous
-        if (claimOwner.isSafezone() || claimOwner.isWarzone()) {
-            event.setCancelled(true);
-            player.sendMessage("§cVous ne pouvez pas définir un home dans cette zone.");
+        FLocation fLoc =
+                new FLocation(
+                        player.getLocation()
+                );
+
+        String zoneId =
+                plugin.getClaimManager()
+                        .getZoneService()
+                        .getZoneIdAt(
+                                fLoc
+                        );
+
+        if (zoneId != null) {
+            boolean allowed =
+                    plugin.getClaimManager()
+                            .getZoneService()
+                            .isActionAllowed(
+                                    zoneId,
+                                    TerritoryAction.SET_HOME
+                            );
+
+            if (!allowed) {
+                ZoneDefinition zone =
+                        plugin.getClaimManager()
+                                .getZoneService()
+                                .getDefinition(
+                                        zoneId
+                                );
+
+                event.setCancelled(true);
+                player.sendMessage(
+                        "§cVous ne pouvez pas définir un home dans §e"
+                                + (zone != null
+                                        ? zone.getDisplayName()
+                                        : zoneId)
+                                + "§c."
+                );
+            }
+
             return;
         }
-        
+
+        Faction claimOwner =
+                plugin.getClaimManager()
+                        .getFactionAt(
+                                fLoc
+                        );
+
+        if (claimOwner == null
+                || claimOwner.isWilderness()) {
+            return;
+        }
+
         // Vérifier si la faction propriétaire a l'anti-sethome
         if (!claimOwner.isAntiSethomeEnabled()) return;
         

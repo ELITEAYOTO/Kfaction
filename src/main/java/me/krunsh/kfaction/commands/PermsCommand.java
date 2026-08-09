@@ -1,259 +1,603 @@
 package me.krunsh.kfaction.commands;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import java.util.stream.Collectors;
 
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
 import me.krunsh.kfaction.Kfaction;
+import me.krunsh.kfaction.data.FPlayer;
 import me.krunsh.kfaction.data.Faction;
 import me.krunsh.kfaction.data.FactionRole;
-import me.krunsh.kfaction.data.FPlayer;
 import me.krunsh.kfaction.data.PermissionAction;
+import me.krunsh.kfaction.data.Relation;
+import me.krunsh.kfaction.permissions.FactionCapability;
 
 /**
- * Commande /f perms [role] - Ouvre le GUI des permissions de faction
- * /f permissions est un alias
- * 
- * Rôles disponibles: recruit, member, moderator, coleader
- * Sans argument: ouvre le menu principal de sélection de rôle
- * Avec rôle: ouvre directement le menu de permissions de ce rôle
- * 
- * Action toggle: /f perm toggle <role> <permission>
+ * /f perms [role]
+ * /f perms toggle <role|relation> <legacy-permission>
+ * /f perms reset <role|relation|all>
+ *
+ * Le toggle PermissionAction reste temporairement disponible pour Kgui V1.
+ * Les defaults et l'autorisation de gestion utilisent déjà le moteur V2.
  */
 public class PermsCommand extends SubCommand {
-    
-    private static final List<String> VALID_ROLES = Arrays.asList(
-        "recruit", "recrue", "r",
-        "member", "membre", "m",
-        "moderator", "moderateur", "mod",
-        "coleader", "co", "cl"
-    );
-    
+
     public PermsCommand(Kfaction plugin) {
         super(plugin);
     }
-    
+
     @Override
     public String getName() {
         return "perms";
     }
-    
+
     @Override
-    public void execute(CommandSender sender, String[] args) {
+    public void execute(
+            CommandSender sender,
+            String[] args
+    ) {
         Player player = getPlayer(sender);
-        if (player == null) return;
-        
-        FPlayer fPlayer = plugin.getFPlayerManager().getFPlayer(player);
-        
-        if (!fPlayer.hasFaction()) {
-            sendMessage(sender, "perms.not-in-faction");
+
+        if (player == null) {
             return;
         }
-        
-        Faction faction = plugin.getFactionManager().getFaction(fPlayer.getFactionId());
+
+        FPlayer fPlayer =
+                plugin.getFPlayerManager()
+                        .findLoaded(
+                                player.getUniqueId()
+                        );
+
+        if (fPlayer == null
+                || !fPlayer.hasFaction()) {
+            sendMessage(
+                    sender,
+                    "perms.not-in-faction"
+            );
+            return;
+        }
+
+        Faction faction =
+                plugin.getFactionManager()
+                        .getFaction(
+                                fPlayer.getFactionId()
+                        );
+
         if (faction == null) {
-            sendMessage(sender, "general.error");
+            sendMessage(
+                    sender,
+                    "general.error"
+            );
             return;
         }
-        
-        // Seuls Leader et CoLeader peuvent gérer les permissions
-        if (fPlayer.getRole() != FactionRole.LEADER && fPlayer.getRole() != FactionRole.COLEADER) {
-            sendMessage(sender, "perms.no-permission");
+
+        FactionRole canonicalRole =
+                faction.getRole(
+                        player.getUniqueId()
+                );
+
+        boolean legacyColeaderCompatibility =
+                canonicalRole == FactionRole.COLEADER
+                        || canonicalRole == FactionRole.LEADER;
+
+        if (!plugin.getPermissionManager().can(
+                player,
+                FactionCapability.EDIT_PERMISSIONS
+        ) && !legacyColeaderCompatibility) {
+            sendMessage(
+                    sender,
+                    "perms.no-permission"
+            );
             return;
         }
-        
-        // Vérifier que Kgui est disponible
-        if (!plugin.getHookManager().hasKgui() || !plugin.getHookManager().getKguiHook().isAvailable()) {
-            player.sendMessage("§c✖ Le système de permissions n'est pas disponible (Kgui non chargé).");
+
+        /*
+         * Les mutations CLI fonctionnent même sans Kgui.
+         */
+        if (args.length > 0
+                && args[0].equalsIgnoreCase(
+                        "toggle"
+                )) {
+            handleToggle(
+                    player,
+                    faction,
+                    args
+            );
             return;
         }
-        
-        // Vérifier si c'est une action toggle
-        if (args.length >= 3 && args[0].equalsIgnoreCase("toggle")) {
-            handleToggle(player, faction, args);
+
+        if (args.length > 0
+                && args[0].equalsIgnoreCase(
+                        "reset"
+                )) {
+            handleReset(
+                    player,
+                    faction,
+                    args
+            );
             return;
         }
-        
-        // Déterminer le menu à ouvrir
-        String menuId = "faction_permissions";
-        
+
+        if (!hasKgui()) {
+            player.sendMessage(
+                    "§c✖ Kgui n'est pas chargé. "
+                            + "Les commandes toggle/reset restent disponibles."
+            );
+            return;
+        }
+
+        String menuId =
+                "faction_permissions";
+
         if (args.length > 0) {
-            String roleArg = args[0].toLowerCase();
-            FactionRole role = parseRole(roleArg);
-            
-            if (role != null && role != FactionRole.LEADER) {
-                menuId = "faction_perms_" + role.name().toLowerCase();
+            FactionRole role =
+                    parseRole(
+                            args[0]
+                    );
+
+            if (role != null
+                    && role != FactionRole.LEADER) {
+                menuId =
+                        "faction_perms_"
+                                + role.name()
+                                        .toLowerCase();
             }
         }
-        
-        // Ouvrir le menu
-        boolean opened = plugin.getHookManager().getKguiHook().openMenu(player, menuId);
-        
+
+        boolean opened =
+                plugin.getHookManager()
+                        .getKguiHook()
+                        .openMenu(
+                                player,
+                                menuId
+                        );
+
         if (!opened) {
-            player.sendMessage("§c✖ Impossible d'ouvrir le menu des permissions.");
+            player.sendMessage(
+                    "§c✖ Impossible d'ouvrir le menu des permissions."
+            );
         }
     }
-    
-    /**
-     * Gère le toggle d'une permission
-     * Format: /f perm toggle <role|relation> <permission>
-     */
-    private void handleToggle(Player player, Faction faction, String[] args) {
+
+    private void handleToggle(
+            Player player,
+            Faction faction,
+            String[] args
+    ) {
         if (args.length < 3) {
-            player.sendMessage("§c✖ Usage: /f perm toggle <role|relation> <permission>");
+            player.sendMessage(
+                    "§c✖ Usage: /f perms toggle <role|relation> <permission>"
+            );
             return;
         }
-        
-        String roleArg = args[1].toUpperCase();
-        String permArg = args[2].toLowerCase();
-        
-        // Vérifier la permission
-        PermissionAction action = PermissionAction.fromConfigKey(permArg);
+
+        String targetArg =
+                args[1];
+
+        PermissionAction action =
+                PermissionAction.fromConfigKey(
+                        args[2]
+                );
+
         if (action == null) {
-            player.sendMessage("§c✖ Permission invalide: " + permArg);
+            player.sendMessage(
+                    "§c✖ Permission legacy invalide: "
+                            + args[2]
+            );
             return;
         }
-        
-        // Essayer de parser comme FactionRole d'abord
-        FactionRole role = parseRole(roleArg.toLowerCase());
+
+        FactionRole role =
+                parseRole(targetArg);
+
         if (role != null) {
-            // On ne peut pas modifier les permissions du leader
             if (role == FactionRole.LEADER) {
-                player.sendMessage("§c✖ Les permissions du Leader ne peuvent pas être modifiées.");
+                player.sendMessage(
+                        "§c✖ Les permissions du Leader ne peuvent pas être modifiées."
+                );
                 return;
             }
-            
-            // Toggle la permission pour le rôle
-            boolean currentState = faction.hasPermission(role, action);
-            faction.setPermission(role, action, !currentState);
-            
-            // Message de confirmation
-            String state = !currentState ? "§a✔ Activée" : "§c✖ Désactivée";
-            player.sendMessage("§7Permission §f" + action.getDisplayName() + " §7pour §f" + role.getDisplayName() + " §7: " + state);
-            
-            // Rafraîchir le menu si ouvert
-            plugin.getHookManager().getKguiHook().refreshMenu(player);
+
+            boolean current =
+                    faction.hasPermission(
+                            role,
+                            action
+                    );
+
+            faction.setPermission(
+                    role,
+                    action,
+                    !current
+            );
+
+            plugin.getStorageManager()
+                    .markDirty(faction);
+
+            player.sendMessage(
+                    "§7Permission §f"
+                            + action.getDisplayName()
+                            + " §7pour §f"
+                            + role.getDisplayName()
+                            + " §7: "
+                            + (!current
+                                    ? "§a✔ Activée"
+                                    : "§c✖ Désactivée")
+            );
+
+            refreshKgui(player);
             return;
         }
-        
-        // Sinon, essayer de parser comme Relation
-        me.krunsh.kfaction.data.Relation relation = parseRelation(roleArg);
-        if (relation != null) {
-            // Toggle la permission pour la relation
-            boolean currentState = faction.hasPermission(relation, action);
-            faction.setPermission(relation, action, !currentState);
-            
-            // Message de confirmation
-            String state = !currentState ? "§a✔ Activée" : "§c✖ Désactivée";
-            player.sendMessage("§7Permission §f" + action.getDisplayName() + " §7pour §f" + relation.getDisplayName() + " §7: " + state);
-            
-            // Rafraîchir le menu si ouvert
-            plugin.getHookManager().getKguiHook().refreshMenu(player);
+
+        Relation relation =
+                parseRelation(
+                        targetArg
+                );
+
+        if (relation != null
+                && relation != Relation.MEMBER) {
+            boolean current =
+                    faction.hasPermission(
+                            relation,
+                            action
+                    );
+
+            faction.setPermission(
+                    relation,
+                    action,
+                    !current
+            );
+
+            plugin.getStorageManager()
+                    .markDirty(faction);
+
+            player.sendMessage(
+                    "§7Permission §f"
+                            + action.getDisplayName()
+                            + " §7pour §f"
+                            + relation.getDisplayName()
+                            + " §7: "
+                            + (!current
+                                    ? "§a✔ Activée"
+                                    : "§c✖ Désactivée")
+            );
+
+            refreshKgui(player);
             return;
         }
-        
-        player.sendMessage("§c✖ Rôle ou relation invalide: " + roleArg);
+
+        player.sendMessage(
+                "§c✖ Rôle ou relation invalide: "
+                        + targetArg
+        );
     }
-    
-    /**
-     * Parse un argument en Relation
-     */
-    private me.krunsh.kfaction.data.Relation parseRelation(String arg) {
-        try {
-            return me.krunsh.kfaction.data.Relation.valueOf(arg.toUpperCase());
-        } catch (IllegalArgumentException e) {
+
+    private void handleReset(
+            Player player,
+            Faction faction,
+            String[] args
+    ) {
+        if (args.length < 2) {
+            player.sendMessage(
+                    "§c✖ Usage: /f perms reset <role|relation|all>"
+            );
+            return;
+        }
+
+        if (args[1].equalsIgnoreCase(
+                "all"
+        )) {
+            plugin.getPermissionManager()
+                    .resetAllDefaults(
+                            faction
+                    );
+
+            player.sendMessage(
+                    "§a✔ Toutes les permissions ont été réinitialisées selon config.yml."
+            );
+
+            refreshKgui(player);
+            return;
+        }
+
+        FactionRole role =
+                parseRole(
+                        args[1]
+                );
+
+        if (role != null) {
+            if (!plugin.getPermissionManager()
+                    .resetRoleDefaults(
+                            faction,
+                            role
+                    )) {
+                player.sendMessage(
+                        "§c✖ Ce rôle ne peut pas être réinitialisé."
+                );
+                return;
+            }
+
+            player.sendMessage(
+                    "§a✔ Permissions de "
+                            + role.getDisplayName()
+                            + " réinitialisées."
+            );
+
+            refreshKgui(player);
+            return;
+        }
+
+        Relation relation =
+                parseRelation(
+                        args[1]
+                );
+
+        if (relation != null
+                && relation != Relation.MEMBER) {
+            plugin.getPermissionManager()
+                    .resetRelationDefaults(
+                            faction,
+                            relation
+                    );
+
+            player.sendMessage(
+                    "§a✔ Permissions relation "
+                            + relation.getDisplayName()
+                            + " réinitialisées."
+            );
+
+            refreshKgui(player);
+            return;
+        }
+
+        player.sendMessage(
+                "§c✖ Rôle ou relation invalide: "
+                        + args[1]
+        );
+    }
+
+    private FactionRole parseRole(
+            String arg
+    ) {
+        if (arg == null) {
             return null;
         }
-    }
-    
-    /**
-     * Parse un argument de rôle
-     */
-    private FactionRole parseRole(String arg) {
+
         switch (arg.toLowerCase()) {
             case "recruit":
             case "recrue":
             case "r":
                 return FactionRole.RECRUIT;
+
             case "member":
             case "membre":
             case "m":
                 return FactionRole.MEMBER;
+
+            case "officer":
+            case "officier":
+            case "off":
+            case "o":
+                return FactionRole.OFFICER;
+
             case "moderator":
             case "moderateur":
             case "mod":
                 return FactionRole.MODERATOR;
+
             case "coleader":
             case "co":
             case "cl":
                 return FactionRole.COLEADER;
+
             case "leader":
             case "l":
                 return FactionRole.LEADER;
+
             default:
                 return null;
         }
     }
-    
+
+    private Relation parseRelation(
+            String arg
+    ) {
+        if (arg == null) {
+            return null;
+        }
+
+        try {
+            return Relation.valueOf(
+                    arg.toUpperCase()
+            );
+        } catch (IllegalArgumentException exception) {
+            return null;
+        }
+    }
+
+    private boolean hasKgui() {
+        return plugin.getHookManager().hasKgui()
+                && plugin.getHookManager()
+                        .getKguiHook()
+                        .isAvailable();
+    }
+
+    private void refreshKgui(
+            Player player
+    ) {
+        if (hasKgui()) {
+            plugin.getHookManager()
+                    .getKguiHook()
+                    .refreshMenu(player);
+        }
+    }
+
     @Override
-    public List<String> tabComplete(CommandSender sender, String[] args) {
+    public List<String> tabComplete(
+            CommandSender sender,
+            String[] args
+    ) {
         if (!(sender instanceof Player)) {
             return Collections.emptyList();
         }
-        
-        Player player = (Player) sender;
-        FPlayer fPlayer = plugin.getFPlayerManager().getFPlayer(player);
-        
-        if (fPlayer == null || !fPlayer.hasFaction()) {
+
+        Player player =
+                (Player) sender;
+
+        FPlayer fPlayer =
+                plugin.getFPlayerManager()
+                        .findLoaded(
+                                player.getUniqueId()
+                        );
+
+        if (fPlayer == null
+                || !fPlayer.hasFaction()) {
             return Collections.emptyList();
         }
-        
-        // Seuls Leader et CoLeader peuvent voir les suggestions
-        if (fPlayer.getRole() != FactionRole.LEADER && fPlayer.getRole() != FactionRole.COLEADER) {
+
+        Faction faction =
+                plugin.getFactionManager()
+                        .getFaction(
+                                fPlayer.getFactionId()
+                        );
+
+        if (faction == null) {
             return Collections.emptyList();
         }
-        
+
+        FactionRole role =
+                faction.getRole(
+                        player.getUniqueId()
+                );
+
+        if (!plugin.getPermissionManager().can(
+                player,
+                FactionCapability.EDIT_PERMISSIONS
+        )
+                && role != FactionRole.COLEADER
+                && role != FactionRole.LEADER) {
+            return Collections.emptyList();
+        }
+
         if (args.length == 1) {
-            List<String> suggestions = new ArrayList<>(Arrays.asList(
-                "recruit", "member", "moderator", "coleader", "toggle"
-            ));
-            String prefix = args[0].toLowerCase();
-            return suggestions.stream()
-                .filter(s -> s.startsWith(prefix))
-                .collect(Collectors.toList());
+            return filter(
+                    list(
+                            "recruit",
+                            "member",
+                            "officer",
+                            "moderator",
+                            "coleader",
+                            "toggle",
+                            "reset"
+                    ),
+                    args[0]
+            );
         }
-        
-        if (args.length == 2 && args[0].equalsIgnoreCase("toggle")) {
-            List<String> roles = Arrays.asList("RECRUIT", "MEMBER", "MODERATOR", "COLEADER");
-            String prefix = args[1].toUpperCase();
-            return roles.stream()
-                .filter(r -> r.startsWith(prefix))
-                .collect(Collectors.toList());
+
+        if (args.length == 2
+                && (args[0].equalsIgnoreCase("toggle")
+                || args[0].equalsIgnoreCase("reset"))) {
+            List<String> targets =
+                    list(
+                            "RECRUIT",
+                            "MEMBER",
+                            "OFFICER",
+                            "MODERATOR",
+                            "COLEADER",
+                            "ALLY",
+                            "TRUCE",
+                            "NEUTRAL",
+                            "ENEMY"
+                    );
+
+            if (args[0].equalsIgnoreCase(
+                    "reset"
+            )) {
+                targets.add("ALL");
+            }
+
+            return filter(
+                    targets,
+                    args[1]
+            );
         }
-        
-        if (args.length == 3 && args[0].equalsIgnoreCase("toggle")) {
-            // Liste des permissions
-            String prefix = args[2].toLowerCase();
-            return Arrays.stream(PermissionAction.values())
-                .filter(PermissionAction::isDisplayable)
-                .map(PermissionAction::getConfigKey)
-                .filter(k -> k.startsWith(prefix))
-                .collect(Collectors.toList());
+
+        if (args.length == 3
+                && args[0].equalsIgnoreCase(
+                        "toggle"
+                )) {
+            List<String> permissions =
+                    new ArrayList<String>();
+
+            for (PermissionAction action
+                    : PermissionAction.values()) {
+                if (action.isDisplayable()) {
+                    permissions.add(
+                            action.getConfigKey()
+                    );
+                }
+            }
+
+            return filter(
+                    permissions,
+                    args[2]
+            );
         }
-        
+
         return Collections.emptyList();
     }
-    
+
+    private static List<String> list(
+            String... values
+    ) {
+        List<String> result =
+                new ArrayList<String>();
+
+        if (values != null) {
+            Collections.addAll(
+                    result,
+                    values
+            );
+        }
+
+        return result;
+    }
+
+    private static List<String> filter(
+            List<String> values,
+            String prefix
+    ) {
+        if (values == null) {
+            return Collections.emptyList();
+        }
+
+        String normalized =
+                prefix == null
+                        ? ""
+                        : prefix.toLowerCase();
+
+        List<String> result =
+                new ArrayList<String>();
+
+        for (String value : values) {
+            if (value.toLowerCase()
+                    .startsWith(
+                            normalized
+                    )) {
+                result.add(value);
+            }
+        }
+
+        return result;
+    }
+
     @Override
     public String getUsage() {
-        return "/f perms [role]";
+        return "[role|toggle|reset]";
     }
-    
+
     @Override
     public String getDescription() {
         return "Gérer les permissions des rôles";

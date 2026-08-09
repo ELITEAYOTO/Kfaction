@@ -1,6 +1,12 @@
 # ============================================================
 # Kfaction - Messages
-# Tous les messages du plugin (100% personnalisables)
+# Tous les messages déclarés ici sont personnalisables.
+#
+# NOTE V2 IMPORTANTE:
+# Quelques diagnostics techniques / détails OperationResult sont encore
+# construits directement dans certaines classes Java (Doctor, progression,
+# quelques refus Home/Warp). Ce fichier couvre toutes les clés MessageManager
+# actuellement référencées par les Lots V2, notamment les mots de passe warps.
 # ============================================================
 
 # Préfixe global
@@ -37,6 +43,8 @@ create:
   invalid-characters: "&cLe nom ne peut contenir que des lettres, chiffres et underscores."
   blocked-word: "&cCe nom contient un mot interdit."
   not-enough-money: "&cVous n'avez pas assez d'argent. Coût: &e{cost}$"
+  economy-unavailable: "&cLa création de faction coûte de l'argent mais Vault/économie est indisponible."
+  transaction-failed: "&cLe paiement de création a échoué. Aucun argent n'a été volontairement conservé par Kfaction."
   failed: "&cÉchec de la création de la faction. Veuillez réessayer."
   cancelled: "&7Création de faction annulée."
   broadcast: "&6{player} &ea créé la faction &6{faction}&e!"
@@ -103,6 +111,7 @@ promote:
   broadcast: "&a{player} a été promu au rang de &e{role}&a!"
   already-max: "&c{player} est déjà au rang maximum."
   no-permission: "&cVous n'avez pas la permission de promouvoir."
+  hierarchy-denied: "&cVous ne pouvez promouvoir qu'un membre ayant un rang strictement inférieur au vôtre."
 
 demote:
   usage: "&cUsage: /f demote <joueur>"
@@ -114,6 +123,7 @@ demote:
   broadcast: "&c{player} a été rétrogradé au rang de &e{role}&c."
   already-min: "&c{player} est déjà au rang minimum."
   no-permission: "&cVous n'avez pas la permission de rétrograder."
+  hierarchy-denied: "&cVous ne pouvez rétrograder qu'un membre ayant un rang strictement inférieur au vôtre."
 
 leader:
   usage: "&cUsage: /f leader <joueur>"
@@ -133,6 +143,7 @@ mod:
   not-in-faction: "&cVous devez être dans une faction."
   not-member: "&cCe joueur n'est pas membre de votre faction."
   need-coleader: "&cVous devez être au moins Sous-Chef pour utiliser cette commande."
+  hierarchy-denied: "&cVous ne pouvez modifier le rang que d'un membre strictement inférieur au vôtre."
   cannot-change-leader: "&cVous ne pouvez pas modifier le rang du Chef."
   already-mod: "&cCe joueur est déjà Modérateur."
   success: "&a{player} &aest maintenant Modérateur!"
@@ -182,6 +193,8 @@ claim:
   invalid-radius: "&cRayon invalide. Utilisez un nombre (ex: /f claim 3)"
   not-enough-power: "&cPower insuffisant! Vous avez besoin de &e{needed} &cchunks mais seulement &e{available} &cdisponibles."
   radius-success: "&a{count} chunks revendiqués avec succès! &7(rayon {radius})"
+  # ClaimService V2 /f claim fill
+  fill-success: "&aPoche remplie: &e{count} &achunks revendiqués. &7(Surclaims: &e{overclaims}&7)"
   radius-failed: "&c{count} chunks n'ont pas pu être revendiqués."
   
   surclaim-success: "&aVous avez surclaim un chunk de &c{faction}&a! &7({x}, {z})"
@@ -197,6 +210,7 @@ unclaim:
 unclaimall:
   success: "&cTous vos claims ont été libérés. &7({count} chunks)"
   confirm: "&cÊtes-vous sûr? Tapez &e/f unclaimall confirm &cpour confirmer."
+  broadcast: "&c{player} &7a libéré &e{count} &7claims de la faction."
 
 autoclaim:
   enabled: "&aAuto-claim activé."
@@ -234,7 +248,14 @@ territory:
 protection:
   cannot-pearl-enemy: "&cVous ne pouvez pas utiliser d'ender pearl dans un territoire ennemi!"
   cannot-pearl-safezone: "&cVous ne pouvez pas utiliser d'ender pearl dans une safezone!"
+  cannot-pearl-zone: "&cVous ne pouvez pas utiliser d'ender pearl dans la zone &e{zone}&c."
   piston-blocked: "&7Un piston a été bloqué (protection anti-exploit)."
+
+# ============================================================
+# PVP
+# ============================================================
+pvp:
+  cannot-attack: "&cVous ne pouvez pas attaquer ce joueur ici."
 
 # ============================================================
 # POWER
@@ -246,6 +267,9 @@ power:
   lost: "&cVous avez perdu &e{amount} &cpower. &7(Actuel: &e{current}&7)"
   regen: "&aVous avez regagné &e{amount} &apower. &7(Actuel: &e{current}&7)"
   info: "&7Votre power: &e{current}&7/&e{max}"
+  gain-kill: "&a+{amount} power &7pour ce kill."
+  loss-death: "&c-{amount} power &7à cause de votre mort."
+  faction-raidable: "&c⚠ Votre faction est désormais raidable: son power ne couvre plus tous ses claims."
 
 # ============================================================
 # RELATIONS
@@ -281,8 +305,9 @@ ally:
   faction-not-found: "&cLa faction '&e{name}&c' n'existe pas."
   cannot-self: "&cVous ne pouvez pas vous allier avec votre propre faction."
   request-sent: "&dDemande d'alliance envoyée à &e{faction}&d."
+  success: "&aAlliance établie avec &e{faction}&a."
   cancelled: "&7Demande d'alliance annulée."
-  failed: "&cÉchec de la création d'alliance."
+  failed: "&cAlliance impossible: &e{reason}"
   no-permission: "&cVous n'avez pas la permission de gérer les alliances."
 
 # ============================================================
@@ -294,6 +319,7 @@ enemy:
   faction-not-found: "&cLa faction '&e{name}&c' n'existe pas."
   cannot-self: "&cVous ne pouvez pas vous déclarer ennemi de votre propre faction."
   success: "&cVous avez déclaré &e{faction} &ccomme ennemi!"
+  failed: "&cDéclaration ennemie impossible: &e{reason}"
   cancelled: "&7Déclaration d'hostilité annulée."
   no-permission: "&cVous n'avez pas la permission de déclarer des ennemis."
 
@@ -306,6 +332,7 @@ neutral:
   faction-not-found: "&cLa faction '&e{name}&c' n'existe pas."
   cannot-self: "&cVous ne pouvez pas changer la relation avec votre propre faction."
   success: "&7Vous êtes maintenant neutre avec &e{faction}&7."
+  failed: "&cRetour à la neutralité impossible: &e{reason}"
   cancelled: "&7Action annulée."
   no-permission: "&cVous n'avez pas la permission de gérer les relations."
 
@@ -318,6 +345,8 @@ truce:
   faction-not-found: "&cLa faction '&e{name}&c' n'existe pas."
   cannot-self: "&cVous ne pouvez pas vous allier avec votre propre faction."
   request-sent: "&eDemande de trêve envoyée à &e{faction}&e."
+  success: "&aTrêve établie avec &e{faction}&a."
+  failed: "&cTrêve impossible: &e{reason}"
   cancelled: "&7Demande de trêve annulée."
   no-permission: "&cVous n'avez pas la permission de gérer les trêves."
 
@@ -446,6 +475,12 @@ warp:
   created-broadcast: "&a{player} a créé le warp &e{name}&a."
   updated: "&aWarp &e{name} &amis à jour!"
   deleted: "&cWarp &e{name} &csupprimé."
+
+  # ----------------------------------------------------------
+  # Téléportation Warp V2
+  # ----------------------------------------------------------
+  teleporting: "&eTéléportation vers le warp &f{name} &edans &f{seconds}s&e. Ne bougez pas."
+  cancelled-move: "&cTéléportation annulée: vous avez bougé."
   teleported: "&aTéléporté au warp &e{name}&a!"
   no-warps: "&cVotre faction n'a pas de warps. Utilisez &e/f setwarp <nom>&c."
   not-found: "&cWarp &e{name} &cnon trouvé."
@@ -456,6 +491,38 @@ warp:
   usage-setwarp: "&cUsage: &e/f setwarp <nom>"
   usage-delete: "&cUsage: &e/f warp delete <nom>"
   removed-unclaim: "&cLe warp &e{name} &ca été supprimé car la zone n'est plus revendiquée."
+
+  # ----------------------------------------------------------
+  # MOTS DE PASSE WARPS V2
+  # ----------------------------------------------------------
+  #
+  # Sécurité:
+  # - le mot de passe n'est JAMAIS injecté dans un message;
+  # - le message chat est intercepté;
+  # - seul un hash PBKDF2 est persisté.
+  #
+  password:
+
+    # Demande de mot de passe pour entrer sur un warp protégé.
+    prompt-auth: "&eLe warp &f{name} &eest protégé. Écrivez son mot de passe dans le chat."
+
+    # Demande de définition/remplacement du mot de passe.
+    prompt-set: "&eÉcrivez le nouveau mot de passe du warp &f{name} &edans le chat."
+
+    # Aide affichée juste après le prompt.
+    prompt-hint: "&7Votre message sera intercepté par Kfaction. Écrivez &ccancel &7pour annuler."
+
+    # Timeout de la saisie.
+    prompt-expired: "&cLa saisie du mot de passe a expiré."
+
+    # Le joueur a écrit "cancel".
+    prompt-cancelled: "&7Saisie du mot de passe annulée."
+
+    # Le joueur a changé/quitté sa faction entre le prompt et la réponse.
+    faction-changed: "&cVotre faction a changé pendant l'opération."
+
+    # Confirmation après définition du mot de passe.
+    enabled: "&aMot de passe du warp &e{name} &adéfini."
 
 # ============================================================
 # TNT
@@ -489,7 +556,7 @@ admin:
   player-not-member: "&cLe joueur &e{player} &cn'est pas membre de cette faction."
   invalid-number: "&cNombre invalide: &e{value}"
   invalid-name: "&cNom invalide."
-  invalid-role: "&cRôle invalide. Valides: recruit, member, moderator, coleader"
+  invalid-role: "&cRôle invalide. Valides: recruit, member, officer, moderator, coleader. Utilisez forceleader pour LEADER."
   cannot-target-leader: "&cVous ne pouvez pas modifier le rôle du leader."
   cannot-disband-system: "&cVous ne pouvez pas dissoudre une faction système."
   unknown-command: "&cSous-commande admin inconnue. Utilisez &e/f admin help&c."
@@ -761,3 +828,58 @@ fly:
 # ============================================================
 antisethome:
   blocked: "&c&lBloqué! &cVous ne pouvez pas placer de home dans le territoire de &e{faction}&c!"
+
+# ============================================================
+# GLOBAL ZONES V2.2 - ADMINISTRATION
+# ============================================================
+#
+# Ces messages sont utilisés par /kf zone.
+# Les informations détaillées de /kf zone list/info restent structurées
+# comme sortie de diagnostic staff.
+#
+zone-admin:
+
+  no-permission: "&cTu n'as pas la permission."
+  player-only: "&cCette action nécessite un joueur en jeu."
+
+  usage-claim: "&cUsage: &e/kf zone claim <zone>"
+  usage-auto: "&cUsage: &e/kf zone auto <zone|off>"
+  usage-autounclaim: "&cUsage: &e/kf zone autounclaim <zone|off>"
+
+  unknown-zone: "&cZone inconnue: &e{zone}"
+  available-zones: "&7Disponibles: &f{zones}"
+  invalid-id: "&cID de zone invalide."
+
+  no-zone-here: "&7Ce chunk n'a aucune Global Zone."
+  definition-missing: "&cDéfinition de zone absente."
+
+  claim-success: "&a✔ Zone {zone_color}{zone_name} &aassignée au chunk &e{x}&7, &e{z}&a."
+  unclaim-success: "&a✔ Zone &e{zone} &aretirée du chunk &e{x}&7, &e{z}&a."
+
+  auto-claim-on: "&a✔ Auto-zone activé: &e{zone}&a. Marchez de chunk en chunk."
+  auto-claim-off: "&7Auto-zone claim désactivé."
+
+  auto-unclaim-on: "&c✔ Auto-zone unclaim activé: &e{zone}&c. Seuls les chunks de ce type seront retirés."
+  auto-unclaim-off: "&7Auto-zone unclaim désactivé."
+
+  auto-definition-missing: "&c[Zone Auto] Définition inconnue: &e{zone}&c. Mode désactivé."
+  auto-failure: "&c[Zone Auto] Échec: &7{reason}"
+  auto-walk-claim: "&a[Zone Auto] &f{zone} &7→ {x}, {z}"
+  auto-walk-unclaim: "&c[Zone Auto-Unclaim] &f{zone} &7→ {x}, {z}"
+
+  failure: "&cÉchec zone: &7{reason}"
+
+  reload-success: "&a✔ Définitions de zones rechargées: &e{count}"
+  reload-issues: "&e⚠ {count} problème(s) de configuration détecté(s)."
+
+
+
+# ============================================================
+# MENU / PERMISSIONS - FALLBACKS V2
+# ============================================================
+menu:
+  no-gui: "&cAucun GUI n'est disponible pour cette action."
+
+perms:
+  no-permission: "&cVous n'avez pas la permission de modifier les permissions de faction."
+  not-in-faction: "&cVous devez être dans une faction."

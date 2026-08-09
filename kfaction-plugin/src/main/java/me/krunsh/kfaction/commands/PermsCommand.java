@@ -16,12 +16,12 @@ import me.krunsh.kfaction.data.Relation;
 import me.krunsh.kfaction.permissions.FactionCapability;
 
 /**
- * /f perms [role]
+ * /f perms
  * /f perms toggle <role|relation> <legacy-permission>
  * /f perms reset <role|relation|all>
  *
- * Le toggle PermissionAction reste temporairement disponible pour Kgui V1.
- * Les defaults et l'autorisation de gestion utilisent déjà le moteur V2.
+ * Cette commande reste autonome. Les interfaces graphiques externes utilisent
+ * KfactionPlayerActions et ne pilotent jamais cette commande en texte.
  */
 public class PermsCommand extends SubCommand {
 
@@ -121,45 +121,7 @@ public class PermsCommand extends SubCommand {
             return;
         }
 
-        if (!hasKgui()) {
-            player.sendMessage(
-                    "§c✖ Kgui n'est pas chargé. "
-                            + "Les commandes toggle/reset restent disponibles."
-            );
-            return;
-        }
-
-        String menuId =
-                "faction_permissions";
-
-        if (args.length > 0) {
-            FactionRole role =
-                    parseRole(
-                            args[0]
-                    );
-
-            if (role != null
-                    && role != FactionRole.LEADER) {
-                menuId =
-                        "faction_perms_"
-                                + role.name()
-                                        .toLowerCase();
-            }
-        }
-
-        boolean opened =
-                plugin.getHookManager()
-                        .getKguiHook()
-                        .openMenu(
-                                player,
-                                menuId
-                        );
-
-        if (!opened) {
-            player.sendMessage(
-                    "§c✖ Impossible d'ouvrir le menu des permissions."
-            );
-        }
+        showHelp(player);
     }
 
     private void handleToggle(
@@ -227,7 +189,6 @@ public class PermsCommand extends SubCommand {
                                     : "§c✖ Désactivée")
             );
 
-            refreshKgui(player);
             return;
         }
 
@@ -264,7 +225,6 @@ public class PermsCommand extends SubCommand {
                                     : "§c✖ Désactivée")
             );
 
-            refreshKgui(player);
             return;
         }
 
@@ -298,7 +258,6 @@ public class PermsCommand extends SubCommand {
                     "§a✔ Toutes les permissions ont été réinitialisées selon config.yml."
             );
 
-            refreshKgui(player);
             return;
         }
 
@@ -325,7 +284,6 @@ public class PermsCommand extends SubCommand {
                             + " réinitialisées."
             );
 
-            refreshKgui(player);
             return;
         }
 
@@ -348,7 +306,6 @@ public class PermsCommand extends SubCommand {
                             + " réinitialisées."
             );
 
-            refreshKgui(player);
             return;
         }
 
@@ -417,21 +374,11 @@ public class PermsCommand extends SubCommand {
         }
     }
 
-    private boolean hasKgui() {
-        return plugin.getHookManager().hasKgui()
-                && plugin.getHookManager()
-                        .getKguiHook()
-                        .isAvailable();
-    }
-
-    private void refreshKgui(
-            Player player
-    ) {
-        if (hasKgui()) {
-            plugin.getHookManager()
-                    .getKguiHook()
-                    .refreshMenu(player);
-        }
+    private void showHelp(Player player) {
+        player.sendMessage("§6§l━━ Permissions faction ━━");
+        player.sendMessage("§e/f perms toggle <rôle|relation> <permission>");
+        player.sendMessage("§e/f perms reset <rôle|relation|all>");
+        player.sendMessage("§7Le pack Kgui optionnel fournit une interface configurable.");
     }
 
     @Override

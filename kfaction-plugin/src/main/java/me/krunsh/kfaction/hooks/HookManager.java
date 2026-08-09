@@ -37,7 +37,6 @@ public final class HookManager
     private PlaceholderAPIHook placeholderHook;
     private KcoreHook kcoreHook;
     private KchatHook kchatHook;
-    private KguiHook kguiHook;
     private KclassementHook kclassementHook;
     private LuckPermsHook luckPermsHook;
 
@@ -64,7 +63,6 @@ public final class HookManager
         initializePlaceholderApi();
         initializeKcore();
         initializeKchat();
-        initializeKgui();
         initializeKclassement();
         initializeLuckPerms();
     }
@@ -264,40 +262,6 @@ public final class HookManager
             failed(
                     id,
                     "Kchat",
-                    throwable
-            );
-        }
-    }
-
-    private void initializeKgui() {
-        final String id = "kgui";
-
-        if (!isPluginEnabled("Kgui")) {
-            missing(id, "Kgui");
-            return;
-        }
-
-        try {
-            /*
-             * KguiHook reste le bridge V1 de menus jusqu'au vrai Kgui V2.
-             * Les ContentProviders sont migrés API V2 dans ce lot.
-             */
-            kguiHook =
-                    new KguiHook(plugin);
-
-            kguiHook.initialize();
-
-            active(
-                    id,
-                    "Kgui",
-                    "legacy menu bridge + API V2 content"
-            );
-
-        } catch (Throwable throwable) {
-            kguiHook = null;
-            failed(
-                    id,
-                    "Kgui",
                     throwable
             );
         }
@@ -531,14 +495,6 @@ public final class HookManager
 
     public KchatHook getKchatHook() {
         return kchatHook;
-    }
-
-    public boolean hasKgui() {
-        return kguiHook != null;
-    }
-
-    public KguiHook getKguiHook() {
-        return kguiHook;
     }
 
     public boolean hasKclassement() {

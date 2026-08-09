@@ -149,3 +149,13 @@ if (api == null || api.getApiMajor() != 2) {
 ```
 
 Kfaction reste autonome si Kgui est absent.
+
+## Propriété de l'intégration depuis Kfaction 2.3
+
+L'adaptateur, les providers et le pack de menus appartiennent à Kgui. Kfaction
+ne déclare plus Kgui en `softdepend`, ne charge aucune classe Kgui et n'ouvre
+aucun menu externe. Les commandes `/f menu`, `/f logs` et `/f perms` gardent
+un parcours textuel autonome.
+
+Lorsque les deux plugins sont présents, Kgui consomme exclusivement
+`KfactionApiV23`, `KfactionPlayerActions` et les événements publics V2.3.

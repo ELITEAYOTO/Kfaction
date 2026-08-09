@@ -230,16 +230,6 @@ public class Kfaction extends JavaPlugin {
                     }
             );
 
-            timed(
-                    "Kgui providers",
-                    new StartupStep() {
-                        @Override
-                        public void run() {
-                            registerKguiProviders();
-                        }
-                    }
-            );
-
             enableCompleted = true;
 
             restoreLifecycleInfoGate();
@@ -1033,27 +1023,6 @@ public class Kfaction extends JavaPlugin {
      * L'ancien registerPlaceholders() direct a été supprimé afin d'éviter le
      * double enregistrement de l'expansion "kfaction".
      */
-    private void registerKguiProviders() {
-        if (Bukkit.getPluginManager()
-                .isPluginEnabled(
-                        "Kgui"
-                )) {
-            new me.krunsh.kfaction.hooks.KguiContentProviders(
-                    this
-            ).register();
-
-            KfactionLogger.debug(
-                    this,
-                    "Kgui ContentProviders: ACTIVE"
-            );
-        } else {
-            KfactionLogger.debug(
-                    this,
-                    "Kgui ContentProviders: MISSING (optionnel)"
-            );
-        }
-    }
-
     private void startTasks() {
         /*
          * PowerManager gère sa propre régénération.

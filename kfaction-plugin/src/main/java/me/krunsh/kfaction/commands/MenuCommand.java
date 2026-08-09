@@ -7,43 +7,29 @@ import me.krunsh.kfaction.Kfaction;
 import me.krunsh.kfaction.data.FPlayer;
 
 /**
- * Commande /f menu - Ouvre le menu principal de faction
+ * Commande /f menu - affiche le point d'entrée textuel autonome.
+ *
+ * Kfaction ne dépend volontairement d'aucun moteur de GUI. Un serveur qui
+ * installe Kgui ouvre son pack configurable avec les commandes de Kgui.
  */
 public class MenuCommand extends SubCommand {
-    
+
     public MenuCommand(Kfaction plugin) {
         super(plugin);
     }
-    
+
     @Override
     public void execute(CommandSender sender, String[] args) {
         Player player = getPlayer(sender);
-        
-        // Vérifier si le joueur est dans une faction
         FPlayer fPlayer = plugin.getFPlayerManager().getFPlayer(player);
         if (fPlayer == null || !fPlayer.hasFaction()) {
             sendMessage(sender, "error.no-faction");
             return;
         }
-        
-        // Vérifier si Kgui est disponible et initialisé
-        if (plugin.getHookManager().hasKgui() && plugin.getHookManager().getKguiHook().isAvailable()) {
-            boolean opened = plugin.getHookManager().getKguiHook().openFactionMenu(player);
-            if (!opened) {
-                // Fallback si le menu n'a pas pu être ouvert
-                showFallbackMenu(player);
-            }
-        } else {
-            // Fallback: afficher les commandes disponibles
-            showFallbackMenu(player);
-        }
+        showTextMenu(player);
     }
-    
-    /**
-     * Affiche un menu textuel si Kgui n'est pas disponible
-     */
-    private void showFallbackMenu(Player player) {
-        sendMessage(player, "menu.no-gui");
+
+    private void showTextMenu(Player player) {
         player.sendMessage("§6§l━━━━━━ Menu Faction ━━━━━━");
         player.sendMessage("");
         player.sendMessage("§e/f show §7- Voir les infos de ta faction");
@@ -57,8 +43,8 @@ public class MenuCommand extends SubCommand {
         player.sendMessage("");
         player.sendMessage("§6§l━━━━━━━━━━━━━━━━━━━━━━━━━");
     }
-    
+
     @Override public String getName() { return "menu"; }
-    @Override public String getDescription() { return "Ouvre le menu de faction"; }
+    @Override public String getDescription() { return "Affiche le menu de faction"; }
     @Override public String getUsage() { return ""; }
 }

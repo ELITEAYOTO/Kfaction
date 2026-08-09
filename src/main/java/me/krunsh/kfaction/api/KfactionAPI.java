@@ -1,338 +1,493 @@
 package me.krunsh.kfaction.api;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
+import org.bukkit.plugin.ServicePriority;
+import org.bukkit.plugin.ServicesManager;
 
 import me.krunsh.kfaction.Kfaction;
+import me.krunsh.kfaction.api.v2.KfactionApiProvider;
+import me.krunsh.kfaction.api.v2.KfactionApiV2;
 import me.krunsh.kfaction.data.FLocation;
 import me.krunsh.kfaction.data.FPlayer;
 import me.krunsh.kfaction.data.Faction;
 import me.krunsh.kfaction.data.Relation;
 
 /**
- * API publique de Kfaction pour les plugins externes
- * 
- * Utilisation:
- * KfactionAPI api = Kfaction.getInstance().getAPI();
- * 
- * Ou via le ServiceProvider Bukkit:
- * RegisteredServiceProvider<KfactionAPI> rsp = Bukkit.getServicesManager().getRegistration(KfactionAPI.class);
- * KfactionAPI api = rsp.getProvider();
+ * API historique Kfaction.
+ *
+ * Compatibilité binaire conservée pour les plugins V1.
+ *
+ * Nouveau code:
+ * utiliser KfactionApiV2 via ServicesManager ou v2().
  */
 public class KfactionAPI {
 
     private final Kfaction plugin;
+    private final KfactionApiV2 v2;
 
-    public KfactionAPI(Kfaction plugin) {
-        this.plugin = plugin;
-    }
-
-    // ==================== FACTIONS ====================
-
-    /**
-     * Obtient une faction par son ID
-     * @param factionId L'ID de la faction
-     * @return La faction ou null
-     */
-    public Faction getFaction(String factionId) {
-        return plugin.getFactionManager().getFaction(factionId);
-    }
-
-    /**
-     * Obtient une faction par son tag/nom
-     * @param tag Le tag de la faction
-     * @return La faction ou null
-     */
-    public Faction getFactionByTag(String tag) {
-        return plugin.getFactionManager().getFactionByName(tag);
-    }
-
-    /**
-     * Obtient la faction d'un joueur
-     * @param player Le joueur
-     * @return La faction ou null si sans faction
-     */
-    public Faction getPlayerFaction(Player player) {
-        FPlayer fPlayer = plugin.getFPlayerManager().getFPlayer(player);
-        if (fPlayer == null || !fPlayer.hasFaction()) return null;
-        return plugin.getFactionManager().getFaction(fPlayer.getFactionId());
-    }
-
-    /**
-     * Obtient la faction d'un joueur par UUID
-     * @param uuid L'UUID du joueur
-     * @return La faction ou null
-     */
-    public Faction getPlayerFaction(UUID uuid) {
-        FPlayer fPlayer = plugin.getFPlayerManager().getFPlayer(uuid);
-        if (fPlayer == null || !fPlayer.hasFaction()) return null;
-        return plugin.getFactionManager().getFaction(fPlayer.getFactionId());
-    }
-
-    /**
-     * Vérifie si un joueur est dans une faction
-     * @param player Le joueur
-     * @return true si dans une faction
-     */
-    public boolean hasFaction(Player player) {
-        FPlayer fPlayer = plugin.getFPlayerManager().getFPlayer(player);
-        return fPlayer != null && fPlayer.hasFaction();
-    }
-
-    /**
-     * Obtient toutes les factions normales (pas wilderness/warzone/safezone)
-     * @return Liste des factions
-     */
-    public List<Faction> getAllFactions() {
-        return new java.util.ArrayList<>(plugin.getFactionManager().getPlayerFactions());
-    }
-
-    // ==================== FPLAYER ====================
-
-    /**
-     * Obtient les données faction d'un joueur
-     * @param player Le joueur
-     * @return Le FPlayer
-     */
-    public FPlayer getFPlayer(Player player) {
-        return plugin.getFPlayerManager().getFPlayer(player);
-    }
-
-    /**
-     * Obtient les données faction d'un joueur par UUID
-     * @param uuid L'UUID du joueur
-     * @return Le FPlayer ou null
-     */
-    public FPlayer getFPlayer(UUID uuid) {
-        return plugin.getFPlayerManager().getFPlayer(uuid);
-    }
-
-    // ==================== POWER ====================
-
-    /**
-     * Obtient le power d'un joueur
-     * @param player Le joueur
-     * @return Le power actuel
-     */
-    public double getPlayerPower(Player player) {
-        FPlayer fPlayer = plugin.getFPlayerManager().getFPlayer(player);
-        return fPlayer != null ? fPlayer.getPower() : 0;
-    }
-
-    /**
-     * Obtient le power max d'un joueur
-     * @param player Le joueur
-     * @return Le power maximum
-     */
-    public double getPlayerMaxPower(Player player) {
-        FPlayer fPlayer = plugin.getFPlayerManager().getFPlayer(player);
-        return fPlayer != null ? plugin.getPowerManager().getPlayerMaxPower(player.getUniqueId()) : 0;
-    }
-
-    /**
-     * Obtient le power d'une faction
-     * @param faction La faction
-     * @return Le power total
-     */
-    public double getFactionPower(Faction faction) {
-        return faction != null ? faction.getPower() : 0;
-    }
-
-    /**
-     * Modifie le power d'un joueur (admin)
-     * @param uuid L'UUID du joueur
-     * @param power Le nouveau power
-     */
-    public void setPlayerPower(UUID uuid, double power) {
-        FPlayer fPlayer = plugin.getFPlayerManager().getFPlayer(uuid);
-        if (fPlayer != null) {
-            fPlayer.setPower(power);
+    public KfactionAPI(
+            Kfaction plugin
+    ) {
+        if (plugin == null) {
+            throw new IllegalArgumentException(
+                    "plugin cannot be null"
+            );
         }
-    }
 
-    // ==================== CLAIMS ====================
+        this.plugin = plugin;
 
-    /**
-     * Obtient la faction propriétaire d'un chunk
-     * @param location La location
-     * @return La faction ou null (wilderness)
-     */
-    public Faction getFactionAt(Location location) {
-        FLocation fLoc = new FLocation(location);
-        return plugin.getClaimManager().getFactionAt(fLoc);
+        this.v2 =
+                new KfactionApiProvider(
+                        plugin
+                );
+
+        registerServices();
     }
 
     /**
-     * Vérifie si un chunk est claim
-     * @param location La location
-     * @return true si claimé
+     * Accès direct depuis l'ancienne API.
      */
-    public boolean isClaimed(Location location) {
-        Faction faction = getFactionAt(location);
-        return faction != null && !faction.isWilderness();
+    public KfactionApiV2 v2() {
+        return v2;
     }
 
     /**
-     * Vérifie si une location est en safezone
-     * @param location La location
-     * @return true si safezone
+     * Alias explicite pour les intégrations JavaBeans/Kotlin.
      */
-    public boolean isSafezone(Location location) {
-        Faction faction = getFactionAt(location);
-        return faction != null && faction.isSafezone();
+    public KfactionApiV2 getV2() {
+        return v2;
+    }
+
+    private void registerServices() {
+        ServicesManager services =
+                Bukkit.getServicesManager();
+
+        /*
+         * L'ancienne documentation annonçait déjà une registration
+         * ServicesManager, mais le baseline ne l'effectuait pas réellement.
+         */
+        services.register(
+                KfactionAPI.class,
+                this,
+                plugin,
+                ServicePriority.Normal
+        );
+
+        services.register(
+                KfactionApiV2.class,
+                v2,
+                plugin,
+                ServicePriority.Normal
+        );
+
+        plugin.getLogger().info(
+                "Kfaction API V2 enregistrée: "
+                        + KfactionApiV2.API_VERSION
+        );
+    }
+
+    // ============================================================
+    // LEGACY FACTIONS
+    // ============================================================
+
+    /**
+     * @deprecated Retourne le domaine mutable live.
+     * Utiliser KfactionApiV2#getFaction.
+     */
+    @Deprecated
+    public Faction getFaction(
+            String factionId
+    ) {
+        return plugin.getFactionManager()
+                .getFaction(
+                        factionId
+                );
     }
 
     /**
-     * Vérifie si une location est en warzone
-     * @param location La location
-     * @return true si warzone
+     * @deprecated Retourne le domaine mutable live.
      */
-    public boolean isWarzone(Location location) {
-        Faction faction = getFactionAt(location);
-        return faction != null && faction.isWarzone();
+    @Deprecated
+    public Faction getFactionByTag(
+            String tag
+    ) {
+        Faction faction =
+                plugin.getFactionManager()
+                        .getFactionByTag(tag);
+
+        if (faction == null) {
+            faction =
+                    plugin.getFactionManager()
+                            .getFactionByName(tag);
+        }
+
+        return faction;
     }
 
     /**
-     * Obtient le nombre de claims d'une faction
-     * @param faction La faction
-     * @return Nombre de claims
+     * @deprecated Retourne le domaine mutable live.
      */
-    public int getFactionClaimCount(Faction faction) {
-        return faction != null ? faction.getClaimCount() : 0;
-    }
-
-    // ==================== RELATIONS ====================
-
-    /**
-     * Obtient la relation entre deux joueurs
-     * @param player1 Premier joueur
-     * @param player2 Deuxième joueur
-     * @return La relation
-     */
-    public Relation getRelation(Player player1, Player player2) {
-        FPlayer fp1 = plugin.getFPlayerManager().getFPlayer(player1);
-        FPlayer fp2 = plugin.getFPlayerManager().getFPlayer(player2);
-        
-        if (fp1 == null || fp2 == null) return Relation.NEUTRAL;
-        if (!fp1.hasFaction() || !fp2.hasFaction()) return Relation.NEUTRAL;
-        
-        Faction f1 = plugin.getFactionManager().getFaction(fp1.getFactionId());
-        Faction f2 = plugin.getFactionManager().getFaction(fp2.getFactionId());
-        if (f1 == null || f2 == null) return Relation.NEUTRAL;
-        
-        return f1.getRelationTo(f2);
+    @Deprecated
+    public Faction getPlayerFaction(
+            Player player
+    ) {
+        return player != null
+                ? plugin.getFactionManager()
+                        .getPlayerFaction(player)
+                : null;
     }
 
     /**
-     * Obtient la relation entre deux factions
-     * @param faction1 Première faction
-     * @param faction2 Deuxième faction
-     * @return La relation
+     * @deprecated Retourne le domaine mutable live.
      */
-    public Relation getRelation(Faction faction1, Faction faction2) {
-        if (faction1 == null || faction2 == null) return Relation.NEUTRAL;
-        return faction1.getRelationTo(faction2);
+    @Deprecated
+    public Faction getPlayerFaction(
+            UUID uuid
+    ) {
+        return uuid != null
+                ? plugin.getFactionManager()
+                        .getPlayerFaction(uuid)
+                : null;
+    }
+
+    public boolean hasFaction(
+            Player player
+    ) {
+        return player != null
+                && plugin.getFactionManager()
+                        .getPlayerFaction(player)
+                        != null;
     }
 
     /**
-     * Vérifie si deux joueurs sont alliés
-     * @param player1 Premier joueur
-     * @param player2 Deuxième joueur
-     * @return true si alliés
+     * @deprecated Liste d'objets Faction mutables.
      */
-    public boolean areAllies(Player player1, Player player2) {
-        return getRelation(player1, player2) == Relation.ALLY;
+    @Deprecated
+    public List<Faction> getAllFactions() {
+        return new ArrayList<Faction>(
+                plugin.getFactionManager()
+                        .getPlayerFactions()
+        );
+    }
+
+    // ============================================================
+    // LEGACY FPLAYER
+    // ============================================================
+
+    /**
+     * Lecture V1 corrigée:
+     * ne crée plus de profil implicitement.
+     *
+     * @deprecated Utiliser KfactionApiV2#getPlayer.
+     */
+    @Deprecated
+    public FPlayer getFPlayer(
+            Player player
+    ) {
+        return player != null
+                ? plugin.getFPlayerManager()
+                        .find(
+                                player.getUniqueId()
+                        )
+                : null;
     }
 
     /**
-     * Vérifie si deux joueurs sont ennemis
-     * @param player1 Premier joueur
-     * @param player2 Deuxième joueur
-     * @return true si ennemis
+     * @deprecated Utiliser KfactionApiV2#getPlayer.
      */
-    public boolean areEnemies(Player player1, Player player2) {
-        return getRelation(player1, player2) == Relation.ENEMY;
+    @Deprecated
+    public FPlayer getFPlayer(
+            UUID uuid
+    ) {
+        return uuid != null
+                ? plugin.getFPlayerManager()
+                        .find(uuid)
+                : null;
+    }
+
+    // ============================================================
+    // LEGACY POWER
+    // ============================================================
+
+    public double getPlayerPower(
+            Player player
+    ) {
+        FPlayer fPlayer =
+                getFPlayer(player);
+
+        return fPlayer != null
+                ? fPlayer.getPower()
+                : 0.0D;
+    }
+
+    public double getPlayerMaxPower(
+            Player player
+    ) {
+        if (player == null) {
+            return 0.0D;
+        }
+
+        return plugin.getPowerManager()
+                .getPlayerMaxPower(
+                        player.getUniqueId()
+                );
+    }
+
+    public double getFactionPower(
+            Faction faction
+    ) {
+        return faction != null
+                ? faction.getPower()
+                : 0.0D;
     }
 
     /**
-     * Vérifie si deux joueurs sont dans la même faction
-     * @param player1 Premier joueur
-     * @param player2 Deuxième joueur
-     * @return true si même faction
+     * @deprecated Mutation directe legacy.
+     * Conservée uniquement pour compatibilité.
      */
-    public boolean areSameFaction(Player player1, Player player2) {
-        return getRelation(player1, player2) == Relation.MEMBER;
+    @Deprecated
+    public void setPlayerPower(
+            UUID uuid,
+            double power
+    ) {
+        if (uuid == null) {
+            return;
+        }
+
+        plugin.getPowerManager()
+                .setPlayerPower(
+                        uuid,
+                        power
+                );
     }
 
-    // ==================== TERRITORY ====================
+    // ============================================================
+    // LEGACY CLAIMS
+    // ============================================================
 
     /**
-     * Vérifie si un joueur peut construire à une location
-     * @param player Le joueur
-     * @param location La location
-     * @return true si autorisé
+     * @deprecated Retourne le domaine mutable live.
      */
-    public boolean canBuild(Player player, Location location) {
-        return plugin.getTerritoryManager().canPerformAction(
-            player, location, me.krunsh.kfaction.data.PermissionAction.BUILD);
+    @Deprecated
+    public Faction getFactionAt(
+            Location location
+    ) {
+        if (location == null) {
+            return null;
+        }
+
+        return plugin.getClaimManager()
+                .getFactionAt(
+                        new FLocation(
+                                location
+                        )
+                );
     }
 
-    /**
-     * Vérifie si un joueur peut casser un bloc à une location
-     * @param player Le joueur
-     * @param location La location
-     * @return true si autorisé
-     */
-    public boolean canBreak(Player player, Location location) {
-        return plugin.getTerritoryManager().canPerformAction(
-            player, location, me.krunsh.kfaction.data.PermissionAction.DESTROY);
+    public boolean isClaimed(
+            Location location
+    ) {
+        Faction faction =
+                getFactionAt(location);
+
+        return faction != null
+                && !faction.isWilderness();
     }
 
-    /**
-     * Vérifie si un joueur peut interagir à une location
-     * @param player Le joueur
-     * @param location La location
-     * @return true si autorisé
-     */
-    public boolean canInteract(Player player, Location location) {
-        return plugin.getTerritoryManager().canPerformAction(
-            player, location, me.krunsh.kfaction.data.PermissionAction.SWITCH);
+    public boolean isSafezone(
+            Location location
+    ) {
+        Faction faction =
+                getFactionAt(location);
+
+        return faction != null
+                && faction.isSafezone();
     }
 
-    // ==================== RAIDING ====================
+    public boolean isWarzone(
+            Location location
+    ) {
+        Faction faction =
+                getFactionAt(location);
 
-    /**
-     * Vérifie si une faction est raidable (surclaim possible)
-     * @param faction La faction
-     * @return true si raidable
-     */
-    public boolean isRaidable(Faction faction) {
-        if (faction == null || faction.isSystemFaction()) return false;
-        return plugin.getClaimManager().isRaidable(faction);
+        return faction != null
+                && faction.isWarzone();
     }
 
-    /**
-     * Obtient le nombre de chunks surclaimables
-     * @param faction La faction
-     * @return Nombre de chunks surclaimables
-     */
-    public int getSurclaimableChunks(Faction faction) {
-        if (faction == null || faction.isSystemFaction()) return 0;
-        return plugin.getClaimManager().getOverclaimableCount(faction);
+    public int getFactionClaimCount(
+            Faction faction
+    ) {
+        return faction != null
+                ? faction.getClaimCount()
+                : 0;
     }
 
-    // ==================== UTILS ====================
+    // ============================================================
+    // LEGACY RELATIONS
+    // ============================================================
 
-    /**
-     * Vérifie si un joueur est en bypass admin
-     * @param player Le joueur
-     * @return true si en bypass
-     */
-    public boolean isBypassing(Player player) {
-        FPlayer fPlayer = plugin.getFPlayerManager().getFPlayer(player);
-        return fPlayer != null && fPlayer.isBypassing();
+    public Relation getRelation(
+            Player player1,
+            Player player2
+    ) {
+        if (player1 == null
+                || player2 == null) {
+            return Relation.NEUTRAL;
+        }
+
+        Faction first =
+                plugin.getFactionManager()
+                        .getPlayerFaction(
+                                player1
+                        );
+
+        Faction second =
+                plugin.getFactionManager()
+                        .getPlayerFaction(
+                                player2
+                        );
+
+        if (first == null
+                || second == null) {
+            return Relation.NEUTRAL;
+        }
+
+        return first.getRelationTo(
+                second
+        );
+    }
+
+    public Relation getRelation(
+            Faction faction1,
+            Faction faction2
+    ) {
+        if (faction1 == null
+                || faction2 == null) {
+            return Relation.NEUTRAL;
+        }
+
+        return faction1.getRelationTo(
+                faction2
+        );
+    }
+
+    public boolean areAllies(
+            Player player1,
+            Player player2
+    ) {
+        return getRelation(
+                player1,
+                player2
+        ) == Relation.ALLY;
+    }
+
+    public boolean areEnemies(
+            Player player1,
+            Player player2
+    ) {
+        return getRelation(
+                player1,
+                player2
+        ) == Relation.ENEMY;
+    }
+
+    public boolean areSameFaction(
+            Player player1,
+            Player player2
+    ) {
+        return getRelation(
+                player1,
+                player2
+        ) == Relation.MEMBER;
+    }
+
+    // ============================================================
+    // LEGACY TERRITORY
+    // ============================================================
+
+    public boolean canBuild(
+            Player player,
+            Location location
+    ) {
+        return plugin.getTerritoryManager()
+                .canPerformAction(
+                        player,
+                        location,
+                        me.krunsh.kfaction.data.PermissionAction.BUILD
+                );
+    }
+
+    public boolean canBreak(
+            Player player,
+            Location location
+    ) {
+        return plugin.getTerritoryManager()
+                .canPerformAction(
+                        player,
+                        location,
+                        me.krunsh.kfaction.data.PermissionAction.DESTROY
+                );
+    }
+
+    public boolean canInteract(
+            Player player,
+            Location location
+    ) {
+        return plugin.getTerritoryManager()
+                .canPerformAction(
+                        player,
+                        location,
+                        me.krunsh.kfaction.data.PermissionAction.SWITCH
+                );
+    }
+
+    // ============================================================
+    // LEGACY RAID
+    // ============================================================
+
+    public boolean isRaidable(
+            Faction faction
+    ) {
+        if (faction == null
+                || faction.isSystemFaction()) {
+            return false;
+        }
+
+        return plugin.getClaimManager()
+                .isRaidable(faction);
+    }
+
+    public int getSurclaimableChunks(
+            Faction faction
+    ) {
+        if (faction == null
+                || faction.isSystemFaction()) {
+            return 0;
+        }
+
+        return plugin.getClaimManager()
+                .getOverclaimableCount(
+                        faction
+                );
+    }
+
+    // ============================================================
+    // LEGACY UTILS
+    // ============================================================
+
+    public boolean isBypassing(
+            Player player
+    ) {
+        FPlayer fPlayer =
+                getFPlayer(player);
+
+        return fPlayer != null
+                && fPlayer.isBypassing();
     }
 }

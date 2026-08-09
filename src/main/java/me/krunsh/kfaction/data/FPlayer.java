@@ -199,9 +199,70 @@ public class FPlayer {
         return power;
     }
     
+    /**
+     * Setter legacy de stockage.
+     *
+     * Le minimum métier appartient à PowerManager (power.min peut être
+     * négatif). Cette classe ne doit donc plus écraser un power -5 en 0 lors
+     * d'une restauration SQLite/JSON.
+     */
     public void setPower(double power) {
-        this.power = Math.max(0, Math.min(power, maxPower));
-        this.lastPowerUpdate = System.currentTimeMillis();
+        double safePower =
+                Double.isNaN(power)
+                        ? 0.0D
+                        : power;
+
+        this.power =
+                Math.min(
+                        safePower,
+                        maxPower
+                );
+
+        this.lastPowerUpdate =
+                System.currentTimeMillis();
+    }
+
+    /**
+     * Mutation bornée par un maximum EFFECTIF calculé par PowerManager.
+     *
+     * Le champ historique maxPower reste le maximum de base configuré.
+     * Cette méthode permet aux bonus de permission d'augmenter réellement
+     * le plafond runtime sans réécrire le maxPower persistant à chaque lecture.
+     */
+    public void setPowerWithEffectiveMax(
+            double power,
+            double minimum,
+            double effectiveMaximum
+    ) {
+        double safeMin =
+                Double.isNaN(minimum)
+                        ? 0.0D
+                        : minimum;
+
+        double safeMax =
+                Double.isNaN(effectiveMaximum)
+                        ? maxPower
+                        : Math.max(
+                                safeMin,
+                                effectiveMaximum
+                        );
+
+        double safePower =
+                Double.isNaN(power)
+                        ? safeMin
+                        : power;
+
+        this.power =
+                Math.max(
+                        safeMin,
+                        Math.min(
+                                safePower,
+                                safeMax
+                        )
+                );
+
+        this.lastPowerUpdate =
+                System.currentTimeMillis();
     }
     
     public double getMaxPower() {

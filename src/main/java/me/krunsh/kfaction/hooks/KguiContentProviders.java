@@ -1,297 +1,742 @@
 package me.krunsh.kfaction.hooks;
 
 import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 
 import me.krunsh.kfaction.Kfaction;
-import me.krunsh.kfaction.data.Faction;
-import me.krunsh.kfaction.progression.LevelDefinition;
-import me.krunsh.kfaction.progression.ProgressionConfig;
-import me.krunsh.kfaction.progression.QuestProgressView;
-import me.krunsh.kfaction.progression.RewardDefinition;
+import me.krunsh.kfaction.api.v2.FactionView;
+import me.krunsh.kfaction.api.v2.KfactionApiV2;
+import me.krunsh.kfaction.api.v2.KfactionApis;
+import me.krunsh.kfaction.api.v2.QuestView;
+import me.krunsh.kfaction.api.v2.RewardLevelView;
 
 /**
- * Enregistre les ContentProviders dynamiques dans Kgui
- * pour afficher les quêtes et récompenses dans les menus GUI.
- * 
- * Providers enregistrés:
- * - kfaction_quests : Affiche les quêtes actives avec progression
- * - kfaction_rewards : Affiche l'arbre des récompenses par niveau
- * 
- * Utilise reflection pour éviter la dépendance compile-time sur Kgui.
+ * ContentProviders Kgui V2-ready.
+ *
+ * Toujours reflection-based pour rester compatible avec Kgui V1,
+ * mais aucune lecture directe du domaine/managers Kfaction.
  */
-public class KguiContentProviders {
-    
+public final class KguiContentProviders {
+
+    private static final AtomicBoolean REGISTERED =
+            new AtomicBoolean();
+
     private final Kfaction plugin;
-    private boolean registered = false;
-    
-    public KguiContentProviders(Kfaction plugin) {
+
+    private boolean registered;
+
+    private volatile KfactionApiV2 cachedApi;
+
+    public KguiContentProviders(
+            Kfaction plugin
+    ) {
         this.plugin = plugin;
     }
-    
-    /**
-     * Tente d'enregistrer les providers dans Kgui.
-     * Appelé après le chargement complet de Kfaction.
-     */
+
     public void register() {
-        Plugin kguiPlugin = Bukkit.getPluginManager().getPlugin("Kgui");
-        if (kguiPlugin == null || !kguiPlugin.isEnabled()) {
-            plugin.debug("Kgui non trouvé - ContentProviders non enregistrés");
+        if (registered
+                || REGISTERED.get()) {
+            registered = true;
             return;
         }
-        
-        try {
-            // Obtenir le ContentProviderManager via reflection
-            Method getContentProviderManager = kguiPlugin.getClass().getMethod("getContentProviderManager");
-            Object cpm = getContentProviderManager.invoke(kguiPlugin);
-            
-            if (cpm == null) {
-                plugin.getLogger().warning("ContentProviderManager non disponible dans Kgui");
-                return;
-            }
-            
-            // Charger les classes Kgui API via reflection
-            ClassLoader kguiLoader = kguiPlugin.getClass().getClassLoader();
-            Class<?> providerInterface = kguiLoader.loadClass("me.krunsh.kgui.api.DynamicContentProvider");
-            Class<?> dynamicItemClass = kguiLoader.loadClass("me.krunsh.kgui.api.DynamicItem");
-            Class<?> builderClass = kguiLoader.loadClass("me.krunsh.kgui.api.DynamicItem$Builder");
-            
-            // Méthode register(String, DynamicContentProvider) du ContentProviderManager
-            Method registerMethod = cpm.getClass().getMethod("register", String.class, providerInterface);
-            
-            // Enregistrer le provider de quêtes
-            Object questProvider = createQuestProvider(providerInterface, dynamicItemClass, builderClass);
-            registerMethod.invoke(cpm, "kfaction_quests", questProvider);
-            
-            // Enregistrer le provider de récompenses
-            Object rewardProvider = createRewardProvider(providerInterface, dynamicItemClass, builderClass);
-            registerMethod.invoke(cpm, "kfaction_rewards", rewardProvider);
-            
+
+        Plugin kguiPlugin =
+                Bukkit.getPluginManager()
+                        .getPlugin("Kgui");
+
+        if (kguiPlugin == null
+                || !kguiPlugin.isEnabled()) {
+            return;
+        }
+
+        if (!REGISTERED.compareAndSet(
+                false,
+                true
+        )) {
             registered = true;
-            plugin.logInfo("&7ContentProviders Kgui enregistrés (kfaction_quests, kfaction_rewards)");
-            
-        } catch (Exception e) {
-            plugin.getLogger().warning("Impossible d'enregistrer les ContentProviders Kgui: " + e.getMessage());
+            return;
+        }
+
+        try {
+            Method getContentProviderManager =
+                    kguiPlugin.getClass()
+                            .getMethod(
+                                    "getContentProviderManager"
+                            );
+
+            Object manager =
+                    getContentProviderManager
+                            .invoke(
+                                    kguiPlugin
+                            );
+
+            if (manager == null) {
+                throw new IllegalStateException(
+                        "ContentProviderManager null"
+                );
+            }
+
+            ClassLoader loader =
+                    kguiPlugin.getClass()
+                            .getClassLoader();
+
+            Class<?> providerInterface =
+                    loader.loadClass(
+                            "me.krunsh.kgui.api.DynamicContentProvider"
+                    );
+
+            Class<?> builderClass =
+                    loader.loadClass(
+                            "me.krunsh.kgui.api.DynamicItem$Builder"
+                    );
+
+            Method registerMethod =
+                    manager.getClass()
+                            .getMethod(
+                                    "register",
+                                    String.class,
+                                    providerInterface
+                            );
+
+            registerMethod.invoke(
+                    manager,
+                    "kfaction_quests",
+                    createQuestProvider(
+                            providerInterface,
+                            builderClass
+                    )
+            );
+
+            registerMethod.invoke(
+                    manager,
+                    "kfaction_rewards",
+                    createRewardProvider(
+                            providerInterface,
+                            builderClass
+                    )
+            );
+
+            registered = true;
+
+            plugin.logInfo(
+                    "&7ContentProviders Kgui V2-ready enregistrés "
+                            + "(kfaction_quests, kfaction_rewards)"
+            );
+
+        } catch (Throwable throwable) {
+            REGISTERED.set(false);
+            registered = false;
+
+            plugin.getLogger().warning(
+                    "Impossible d'enregistrer les ContentProviders Kgui: "
+                            + throwable.getClass()
+                                    .getSimpleName()
+                            + ": "
+                            + throwable.getMessage()
+            );
+
             if (plugin.isDebugMode()) {
-                e.printStackTrace();
+                plugin.getLogger().log(
+                        java.util.logging.Level.WARNING,
+                        "Stacktrace ContentProviders Kgui",
+                        throwable
+                );
             }
         }
     }
-    
-    /**
-     * Crée un proxy DynamicContentProvider pour les quêtes
-     */
-    private Object createQuestProvider(Class<?> providerInterface, Class<?> dynamicItemClass, Class<?> builderClass) {
-        return java.lang.reflect.Proxy.newProxyInstance(
-            providerInterface.getClassLoader(),
-            new Class<?>[] { providerInterface },
-            (proxy, method, args) -> {
-                if ("getContent".equals(method.getName())) {
-                    Player player = (Player) args[0];
-                    @SuppressWarnings("unchecked")
-                    Map<String, String> providerArgs = (Map<String, String>) args[1];
-                    return buildQuestItems(player, providerArgs, builderClass);
+
+    private Object createQuestProvider(
+            final Class<?> providerInterface,
+            final Class<?> builderClass
+    ) {
+        return Proxy.newProxyInstance(
+                providerInterface.getClassLoader(),
+                new Class<?>[] {
+                        providerInterface
+                },
+                (proxy, method, args) -> {
+                    String name =
+                            method.getName();
+
+                    if ("getContent".equals(name)) {
+                        Player player =
+                                args != null
+                                && args.length > 0
+                                        ? (Player) args[0]
+                                        : null;
+
+                        @SuppressWarnings("unchecked")
+                        Map<String, String> providerArgs =
+                                args != null
+                                && args.length > 1
+                                && args[1] instanceof Map
+                                        ? (Map<String, String>) args[1]
+                                        : Collections.<String, String>emptyMap();
+
+                        return buildQuestItems(
+                                player,
+                                providerArgs,
+                                builderClass
+                        );
+                    }
+
+                    if ("getId".equals(name)) {
+                        return "kfaction_quests";
+                    }
+
+                    if ("onClick".equals(name)) {
+                        return null;
+                    }
+
+                    return objectMethod(
+                            proxy,
+                            method,
+                            args,
+                            "KfactionQuestProvider"
+                    );
                 }
-                if ("getId".equals(method.getName())) {
-                    return "kfaction_quests";
-                }
-                if ("onClick".equals(method.getName())) {
-                    return null;
-                }
-                // toString, hashCode, equals
-                if ("toString".equals(method.getName())) return "KfactionQuestProvider";
-                if ("hashCode".equals(method.getName())) return 42;
-                if ("equals".equals(method.getName())) return proxy == args[0];
-                return null;
-            }
         );
     }
-    
-    /**
-     * Crée un proxy DynamicContentProvider pour les récompenses
-     */
-    private Object createRewardProvider(Class<?> providerInterface, Class<?> dynamicItemClass, Class<?> builderClass) {
-        return java.lang.reflect.Proxy.newProxyInstance(
-            providerInterface.getClassLoader(),
-            new Class<?>[] { providerInterface },
-            (proxy, method, args) -> {
-                if ("getContent".equals(method.getName())) {
-                    Player player = (Player) args[0];
-                    @SuppressWarnings("unchecked")
-                    Map<String, String> providerArgs = (Map<String, String>) args[1];
-                    return buildRewardItems(player, providerArgs, builderClass);
+
+    private Object createRewardProvider(
+            final Class<?> providerInterface,
+            final Class<?> builderClass
+    ) {
+        return Proxy.newProxyInstance(
+                providerInterface.getClassLoader(),
+                new Class<?>[] {
+                        providerInterface
+                },
+                (proxy, method, args) -> {
+                    String name =
+                            method.getName();
+
+                    if ("getContent".equals(name)) {
+                        Player player =
+                                args != null
+                                && args.length > 0
+                                        ? (Player) args[0]
+                                        : null;
+
+                        @SuppressWarnings("unchecked")
+                        Map<String, String> providerArgs =
+                                args != null
+                                && args.length > 1
+                                && args[1] instanceof Map
+                                        ? (Map<String, String>) args[1]
+                                        : Collections.<String, String>emptyMap();
+
+                        return buildRewardItems(
+                                player,
+                                providerArgs,
+                                builderClass
+                        );
+                    }
+
+                    if ("getId".equals(name)) {
+                        return "kfaction_rewards";
+                    }
+
+                    if ("onClick".equals(name)) {
+                        return null;
+                    }
+
+                    return objectMethod(
+                            proxy,
+                            method,
+                            args,
+                            "KfactionRewardProvider"
+                    );
                 }
-                if ("getId".equals(method.getName())) {
-                    return "kfaction_rewards";
-                }
-                if ("onClick".equals(method.getName())) {
-                    return null;
-                }
-                if ("toString".equals(method.getName())) return "KfactionRewardProvider";
-                if ("hashCode".equals(method.getName())) return 43;
-                if ("equals".equals(method.getName())) return proxy == args[0];
-                return null;
-            }
         );
     }
-    
-    /**
-     * Construit les items de quêtes pour le GUI
-     */
-    private List<Object> buildQuestItems(Player player, Map<String, String> args, Class<?> builderClass) throws Exception {
-        List<Object> items = new ArrayList<>();
-        
-        Faction faction = plugin.getFactionManager().getPlayerFaction(player);
-        if (faction == null) return items;
-        
-        List<QuestProgressView> quests =
-                plugin.getQuestManager().getQuestViews(faction);
-        if (quests.isEmpty()) return items;
-        
-        for (QuestProgressView quest : quests) {
-            Object builder = builderClass.newInstance();
 
-            String statusColor = quest.isCompleted() ? "§a" : "§e";
-            String statusIcon = quest.isCompleted() ? "§a✔ " : "";
+    private List<Object> buildQuestItems(
+            Player player,
+            Map<String, String> ignoredArgs,
+            Class<?> builderClass
+    ) throws Exception {
+        KfactionApiV2 api =
+                api();
 
-            Method materialMethod = builderClass.getMethod("material", String.class);
-            Method nameMethod = builderClass.getMethod("name", String.class);
-            Method dataMethod = builderClass.getMethod("data", int.class);
-            Method loreMethod = builderClass.getMethod("lore", String[].class);
-            Method glowMethod = builderClass.getMethod("glow", boolean.class);
-            Method buildMethod = builderClass.getMethod("build");
-            
-            materialMethod.invoke(builder, quest.getDefinition().getIconMaterial());
-            dataMethod.invoke(builder, quest.getDefinition().getIconData());
-            nameMethod.invoke(builder, statusIcon + "§f"
-                    + render(quest.getDefinition().getDisplayName(), quest));
-            glowMethod.invoke(builder, quest.isCompleted());
-            
-            List<String> loreLines = new ArrayList<>();
-            for (String configured : quest.getDefinition().getLore()) {
-                loreLines.add(render(configured, quest));
+        if (api == null
+                || player == null) {
+            return Collections.emptyList();
+        }
+
+        FactionView faction =
+                api.getPlayerFaction(
+                        player.getUniqueId()
+                );
+
+        if (faction == null) {
+            return Collections.emptyList();
+        }
+
+        List<QuestView> quests =
+                api.getProgressionQuests(
+                        faction.getId()
+                );
+
+        if (quests.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<Object> items =
+                new ArrayList<Object>(
+                        quests.size()
+                );
+
+        BuilderMethods methods =
+                new BuilderMethods(
+                        builderClass
+                );
+
+        for (QuestView quest : quests) {
+            Object builder =
+                    builderClass.newInstance();
+
+            methods.material.invoke(
+                    builder,
+                    quest.getIconMaterial()
+            );
+
+            methods.data.invoke(
+                    builder,
+                    Integer.valueOf(
+                            quest.getIconData()
+                    )
+            );
+
+            methods.name.invoke(
+                    builder,
+                    (quest.isCompleted()
+                            ? "§a✔ "
+                            : "")
+                            + "§f"
+                            + render(
+                                    quest.getDisplayName(),
+                                    quest
+                            )
+            );
+
+            methods.glow.invoke(
+                    builder,
+                    Boolean.valueOf(
+                            quest.isCompleted()
+                    )
+            );
+
+            List<String> lore =
+                    new ArrayList<String>();
+
+            for (String line : quest.getLore()) {
+                lore.add(
+                        render(
+                                line,
+                                quest
+                        )
+                );
             }
-            if (!loreLines.isEmpty()) loreLines.add("");
+
+            if (!lore.isEmpty()) {
+                lore.add("");
+            }
+
             if (quest.isCompleted()) {
-                loreLines.add("§a§l✔ Quête obligatoire complétée");
+                lore.add(
+                        "§a§l✔ Quête obligatoire complétée"
+                );
             } else {
-                loreLines.add("§7Progression:");
-                loreLines.add(progressBar(quest.getPercent(), 20));
-                loreLines.add(statusColor + String.valueOf(quest.getProgress())
-                        + "§7/§e" + quest.getRequired()
-                        + " §7(" + quest.getPercent() + "%)");
+                lore.add(
+                        "§7Progression:"
+                );
+
+                lore.add(
+                        progressBar(
+                                quest.getPercent(),
+                                20
+                        )
+                );
+
+                lore.add(
+                        "§e"
+                                + quest.getProgress()
+                                + "§7/§e"
+                                + quest.getRequired()
+                                + " §7("
+                                + quest.getPercent()
+                                + "%)"
+                );
             }
-            loreMethod.invoke(builder,
-                    (Object) loreLines.toArray(new String[loreLines.size()]));
-            
-            items.add(buildMethod.invoke(builder));
+
+            methods.lore.invoke(
+                    builder,
+                    (Object) lore.toArray(
+                            new String[
+                                    lore.size()
+                            ]
+                    )
+            );
+
+            items.add(
+                    methods.build.invoke(
+                            builder
+                    )
+            );
         }
-        
+
         return items;
     }
-    
-    /**
-     * Construit les items de récompenses par niveau pour le GUI
-     */
-    private List<Object> buildRewardItems(Player player, Map<String, String> args, Class<?> builderClass) throws Exception {
-        List<Object> items = new ArrayList<>();
-        
-        Faction faction = plugin.getFactionManager().getPlayerFaction(player);
-        if (faction == null) return items;
-        
-        int currentLevel = faction.getLevel();
-        ProgressionConfig config = plugin.getQuestManager().getActiveConfig();
-        if (config == null) return items;
-        for (LevelDefinition definition : config.getLevels().values()) {
-            int level = definition.getNumber();
-            
-            Object builder = builderClass.newInstance();
-            
-            Method materialMethod = builderClass.getMethod("material", String.class);
-            Method nameMethod = builderClass.getMethod("name", String.class);
-            Method dataMethod = builderClass.getMethod("data", int.class);
-            Method loreMethod = builderClass.getMethod("lore", String[].class);
-            Method glowMethod = builderClass.getMethod("glow", boolean.class);
-            Method buildMethod = builderClass.getMethod("build");
-            
-            boolean unlocked = currentLevel > level;
-            boolean current = currentLevel == level;
-            
-            // Matériau et couleur selon statut
-            if (unlocked) {
-                materialMethod.invoke(builder, "STAINED_GLASS_PANE");
-                dataMethod.invoke(builder, 5); // Vert lime
-                nameMethod.invoke(builder, "§a§l✔ Niveau " + level);
-                glowMethod.invoke(builder, true);
-            } else if (current) {
-                materialMethod.invoke(builder, "STAINED_GLASS_PANE");
-                dataMethod.invoke(builder, 1); // Orange (en cours)
-                nameMethod.invoke(builder, "§6§l⚡ Niveau " + level + " §7(En cours)");
-                glowMethod.invoke(builder, false);
+
+    private List<Object> buildRewardItems(
+            Player player,
+            Map<String, String> ignoredArgs,
+            Class<?> builderClass
+    ) throws Exception {
+        KfactionApiV2 api =
+                api();
+
+        if (api == null
+                || player == null) {
+            return Collections.emptyList();
+        }
+
+        FactionView faction =
+                api.getPlayerFaction(
+                        player.getUniqueId()
+                );
+
+        if (faction == null) {
+            return Collections.emptyList();
+        }
+
+        List<RewardLevelView> levels =
+                api.getRewardLevels(
+                        faction.getId()
+                );
+
+        BuilderMethods methods =
+                new BuilderMethods(
+                        builderClass
+                );
+
+        List<Object> items =
+                new ArrayList<Object>(
+                        levels.size()
+                );
+
+        for (RewardLevelView level : levels) {
+            Object builder =
+                    builderClass.newInstance();
+
+            methods.material.invoke(
+                    builder,
+                    "STAINED_GLASS_PANE"
+            );
+
+            if (level.isUnlocked()) {
+                methods.data.invoke(
+                        builder,
+                        Integer.valueOf(5)
+                );
+
+                methods.name.invoke(
+                        builder,
+                        "§a§l✔ Niveau "
+                                + level.getLevel()
+                );
+
+                methods.glow.invoke(
+                        builder,
+                        Boolean.TRUE
+                );
+
+            } else if (level.isCurrent()) {
+                methods.data.invoke(
+                        builder,
+                        Integer.valueOf(1)
+                );
+
+                methods.name.invoke(
+                        builder,
+                        "§6§l⚡ Niveau "
+                                + level.getLevel()
+                                + " §7(En cours)"
+                );
+
+                methods.glow.invoke(
+                        builder,
+                        Boolean.FALSE
+                );
+
             } else {
-                materialMethod.invoke(builder, "STAINED_GLASS_PANE");
-                dataMethod.invoke(builder, 14); // Rouge (verrouillé)
-                nameMethod.invoke(builder, "§c§l✖ Niveau " + level);
-                glowMethod.invoke(builder, false);
+                methods.data.invoke(
+                        builder,
+                        Integer.valueOf(14)
+                );
+
+                methods.name.invoke(
+                        builder,
+                        "§c§l✖ Niveau "
+                                + level.getLevel()
+                );
+
+                methods.glow.invoke(
+                        builder,
+                        Boolean.FALSE
+                );
             }
-            
-            // Construire le lore des récompenses
-            List<String> loreLines = new ArrayList<>();
-            loreLines.add("");
-            
-            loreLines.add("§7Récompenses à l'entrée:");
-            if (definition.getRewardsOnEnter().isEmpty()) {
-                loreLines.add("§8▸ §7Aucune récompense définie");
+
+            List<String> lore =
+                    new ArrayList<String>();
+
+            lore.add("");
+            lore.add(
+                    "§7Récompenses à l'entrée:"
+            );
+
+            if (level.getRewards()
+                    .isEmpty()) {
+                lore.add(
+                        "§8▸ §7Aucune récompense définie"
+                );
             } else {
-                for (RewardDefinition reward : definition.getRewardsOnEnter()) {
-                    String statusPrefix = currentLevel >= level ? "§a✔ " : "§c✖ ";
-                    loreLines.add("§8▸ " + statusPrefix
-                            + reward.getDescription().replace("&", "§"));
+                for (String reward
+                        : level.getRewards()) {
+                    lore.add(
+                            "§8▸ "
+                                    + (level.isLocked()
+                                            ? "§c✖ "
+                                            : "§a✔ ")
+                                    + safe(reward)
+                                            .replace(
+                                                    "&",
+                                                    "§"
+                                            )
+                    );
                 }
             }
-            
-            loreLines.add("");
-            if (unlocked) {
-                loreLines.add("§a✔ Débloqué!");
-            } else if (current) {
-                loreLines.add("§6⚡ Quêtes en cours");
+
+            lore.add("");
+
+            if (level.isUnlocked()) {
+                lore.add(
+                        "§a✔ Débloqué!"
+                );
+            } else if (level.isCurrent()) {
+                lore.add(
+                        "§6⚡ Quêtes en cours"
+                );
             } else {
-                loreLines.add("§c✖ Verrouillé");
+                lore.add(
+                        "§c✖ Verrouillé"
+                );
             }
-            
-            loreMethod.invoke(builder, (Object) loreLines.toArray(new String[0]));
-            
-            items.add(buildMethod.invoke(builder));
+
+            methods.lore.invoke(
+                    builder,
+                    (Object) lore.toArray(
+                            new String[
+                                    lore.size()
+                            ]
+                    )
+            );
+
+            items.add(
+                    methods.build.invoke(
+                            builder
+                    )
+            );
         }
-        
+
         return items;
     }
 
-    private String render(String value, QuestProgressView view) {
-        return value.replace("&", "§")
-                .replace("{progress}", String.valueOf(view.getProgress()))
-                .replace("{amount}", String.valueOf(view.getRequired()))
-                .replace("{remaining}", String.valueOf(view.getRemaining()))
-                .replace("{percent}", String.valueOf(view.getPercent()));
+    private KfactionApiV2 api() {
+        KfactionApiV2 current = cachedApi;
+
+        if (current == null) {
+            current = KfactionApis.get();
+
+            if (current != null) {
+                cachedApi = current;
+            }
+        }
+
+        return current;
     }
 
-    private String progressBar(int percent, int length) {
-        int filled = Math.max(0, Math.min(length, percent * length / 100));
-        StringBuilder value = new StringBuilder("§a");
-        for (int index = 0; index < length; index++) {
-            if (index == filled) value.append("§7");
+    private static Object objectMethod(
+            Object proxy,
+            Method method,
+            Object[] args,
+            String name
+    ) {
+        if ("toString".equals(
+                method.getName()
+        )) {
+            return name;
+        }
+
+        if ("hashCode".equals(
+                method.getName()
+        )) {
+            return Integer.valueOf(
+                    System.identityHashCode(
+                            proxy
+                    )
+            );
+        }
+
+        if ("equals".equals(
+                method.getName()
+        )) {
+            return Boolean.valueOf(
+                    args != null
+                            && args.length == 1
+                            && proxy == args[0]
+            );
+        }
+
+        return null;
+    }
+
+    private static String render(
+            String value,
+            QuestView quest
+    ) {
+        return safe(value)
+                .replace(
+                        "&",
+                        "§"
+                )
+                .replace(
+                        "{progress}",
+                        String.valueOf(
+                                quest.getProgress()
+                        )
+                )
+                .replace(
+                        "{amount}",
+                        String.valueOf(
+                                quest.getRequired()
+                        )
+                )
+                .replace(
+                        "{remaining}",
+                        String.valueOf(
+                                quest.getRemaining()
+                        )
+                )
+                .replace(
+                        "{percent}",
+                        String.valueOf(
+                                quest.getPercent()
+                        )
+                );
+    }
+
+    private static String progressBar(
+            int percent,
+            int length
+    ) {
+        int filled =
+                Math.max(
+                        0,
+                        Math.min(
+                                length,
+                                percent * length / 100
+                        )
+                );
+
+        StringBuilder value =
+                new StringBuilder(
+                        "§a"
+                );
+
+        for (int index = 0;
+                index < length;
+                index++) {
+            if (index == filled) {
+                value.append(
+                        "§7"
+                );
+            }
+
             value.append("▌");
         }
+
         return value.toString();
     }
-    
+
+    private static String safe(
+            String value
+    ) {
+        return value != null
+                ? value
+                : "";
+    }
+
     public boolean isRegistered() {
         return registered;
+    }
+
+    private static final class BuilderMethods {
+
+        private final Method material;
+        private final Method name;
+        private final Method data;
+        private final Method lore;
+        private final Method glow;
+        private final Method build;
+
+        private BuilderMethods(
+                Class<?> builderClass
+        ) throws NoSuchMethodException {
+            material =
+                    builderClass.getMethod(
+                            "material",
+                            String.class
+                    );
+
+            name =
+                    builderClass.getMethod(
+                            "name",
+                            String.class
+                    );
+
+            data =
+                    builderClass.getMethod(
+                            "data",
+                            int.class
+                    );
+
+            lore =
+                    builderClass.getMethod(
+                            "lore",
+                            String[].class
+                    );
+
+            glow =
+                    builderClass.getMethod(
+                            "glow",
+                            boolean.class
+                    );
+
+            build =
+                    builderClass.getMethod(
+                            "build"
+                    );
+        }
     }
 }

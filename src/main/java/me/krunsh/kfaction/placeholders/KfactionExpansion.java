@@ -1,320 +1,768 @@
 package me.krunsh.kfaction.placeholders;
 
+import java.util.Locale;
+import java.util.UUID;
+
 import org.bukkit.entity.Player;
 
 import me.clip.placeholderapi.expansion.PlaceholderExpansion;
 import me.krunsh.kfaction.Kfaction;
+import me.krunsh.kfaction.api.v2.FactionView;
+import me.krunsh.kfaction.api.v2.KfactionApiV2;
+import me.krunsh.kfaction.api.v2.KfactionApis;
+import me.krunsh.kfaction.api.v2.MemberView;
+import me.krunsh.kfaction.api.v2.PlayerView;
+import me.krunsh.kfaction.api.v2.ProgressionView;
+import me.krunsh.kfaction.api.v2.TerritoryView;
 import me.krunsh.kfaction.data.FLocation;
-import me.krunsh.kfaction.data.FPlayer;
-import me.krunsh.kfaction.data.Faction;
-import me.krunsh.kfaction.data.Relation;
-import me.krunsh.kfaction.progression.MemberTierDefinition;
-import me.krunsh.kfaction.progression.QuestProgressView;
-import me.krunsh.kfaction.utils.PowerDisplay;
 
 /**
- * Expansion PlaceholderAPI pour Kfaction
- * Fournit tous les placeholders %kfaction_xxx%
+ * PlaceholderAPI V2.
+ *
+ * Aucun accès direct à FactionManager/FPlayerManager/ClaimManager/QuestManager.
  */
-public class KfactionExpansion extends PlaceholderExpansion {
-    
+public final class KfactionExpansion
+        extends PlaceholderExpansion {
+
     private final Kfaction plugin;
-    
-    public KfactionExpansion(Kfaction plugin) {
+
+    private volatile KfactionApiV2 cachedApi;
+
+    public KfactionExpansion(
+            Kfaction plugin
+    ) {
         this.plugin = plugin;
     }
-    
+
     @Override
     public String getIdentifier() {
         return "kfaction";
     }
-    
+
     @Override
     public String getAuthor() {
-        return plugin.getDescription().getAuthors().toString();
+        return plugin.getDescription()
+                .getAuthors()
+                .toString();
     }
-    
+
     @Override
     public String getVersion() {
-        return plugin.getDescription().getVersion();
+        return plugin.getDescription()
+                .getVersion();
     }
-    
+
     @Override
     public boolean persist() {
         return true;
     }
-    
+
     @Override
-    public String onPlaceholderRequest(Player player, String identifier) {
-        if (player == null) return "";
-        
-        FPlayer fPlayer = plugin.getFPlayerManager().getFPlayer(player);
-        Faction faction = fPlayer.hasFaction() ? 
-            plugin.getFactionManager().getFaction(fPlayer.getFactionId()) : null;
-        
-        // === Placeholders joueur ===
-        switch (identifier.toLowerCase()) {
-            // Faction basic
+    public String onPlaceholderRequest(
+            Player player,
+            String identifier
+    ) {
+        if (player == null
+                || identifier == null) {
+            return "";
+        }
+
+        KfactionApiV2 api =
+                api();
+
+        if (api == null) {
+            return "";
+        }
+
+        PlayerView playerView =
+                api.getPlayer(
+                        player.getUniqueId()
+                );
+
+        FactionView faction =
+                api.getPlayerFaction(
+                        player.getUniqueId()
+                );
+
+        String key =
+                identifier.toLowerCase(
+                        Locale.ROOT
+                );
+
+        switch (key) {
             case "has_faction":
-                return fPlayer.hasFaction() ? "true" : "false";
-            
+                return bool(
+                        faction != null
+                );
+
             case "faction_name":
-                return faction != null ? faction.getName() : "";
-            
+                return faction != null
+                        ? safe(faction.getName())
+                        : "";
+
             case "faction_tag":
-                return faction != null ? faction.getTag() : "";
-            
+                return faction != null
+                        ? safe(faction.getTag())
+                        : "";
+
             case "faction_description":
-                return faction != null ? faction.getDescription() : "";
-            
-            // Leader
+                return faction != null
+                        ? safe(faction.getDescription())
+                        : "";
+
             case "faction_leader":
-                if (faction == null || faction.getLeader() == null) return "";
-                FPlayer leader = plugin.getFPlayerManager().getFPlayer(faction.getLeader());
-                return leader != null ? leader.getLastKnownName() : "";
-            
-            // Membres
+                return leaderName(faction);
+
             case "faction_online":
-                return faction != null ? String.valueOf(faction.getOnlinePlayers().size()) : "0";
-            
+                return faction != null
+                        ? String.valueOf(
+                                faction.getOnlineMemberCount()
+                        )
+                        : "0";
+
             case "faction_members":
-                return faction != null ? String.valueOf(faction.getMemberCount()) : "0";
-            
+                return faction != null
+                        ? String.valueOf(
+                                faction.getMemberCount()
+                        )
+                        : "0";
+
             case "faction_maxmembers":
-                return String.valueOf(plugin.getConfigManager().getInt("factions.members.max-per-faction", 50));
-            
-            // Power
+                return faction != null
+                        ? String.valueOf(
+                                faction.getMaxMembers()
+                        )
+                        : String.valueOf(
+                                api.getDefaultMaxMembers()
+                        );
+
             case "faction_power":
-                if (faction == null) return "0";
-                return PowerDisplay.format(plugin.getPowerManager().getFactionPower(faction));
-            
+                return faction != null
+                        ? number(faction.getPower())
+                        : "0";
+
             case "faction_maxpower":
-                if (faction == null) return "0";
-                return PowerDisplay.format(plugin.getPowerManager().getFactionMaxPower(faction));
-            
+                return faction != null
+                        ? number(faction.getMaxPower())
+                        : "0";
+
             case "player_power":
-                return PowerDisplay.format(fPlayer.getPower());
-            
+                return playerView != null
+                        ? number(playerView.getPower())
+                        : "0";
+
             case "player_maxpower":
-                return PowerDisplay.format(plugin.getPowerManager().getPlayerMaxPower(player.getUniqueId()));
-            
-            // Claims
+                return playerView != null
+                        ? number(playerView.getMaxPower())
+                        : "0";
+
             case "faction_claims":
-                return faction != null ? String.valueOf(faction.getClaimCount()) : "0";
-            
+                return faction != null
+                        ? String.valueOf(
+                                faction.getClaimCount()
+                        )
+                        : "0";
+
             case "faction_maxclaims":
-                if (faction == null) return "0";
-                return String.valueOf(plugin.getClaimManager().getMaxClaims(faction));
-            
-            // Économie
+                return faction != null
+                        ? String.valueOf(
+                                faction.getMaxClaims()
+                        )
+                        : "0";
+
             case "faction_bank":
-                return faction != null ? String.format("%.2f", faction.getBank()) : "0";
-            
-            // Relations
+                return faction != null
+                        ? String.format(
+                                Locale.US,
+                                "%.2f",
+                                faction.getBankBalance()
+                        )
+                        : "0";
+
             case "faction_allies":
-                return faction != null ? String.valueOf(faction.getAllies().size()) : "0";
-            
+                return faction != null
+                        ? String.valueOf(
+                                faction.getAllyCount()
+                        )
+                        : "0";
+
             case "faction_enemies":
-                return faction != null ? String.valueOf(faction.getEnemies().size()) : "0";
-            
+                return faction != null
+                        ? String.valueOf(
+                                faction.getEnemyCount()
+                        )
+                        : "0";
+
             case "faction_truces":
-                if (faction == null) return "0";
-                int truceCount = 0;
-                for (Relation r : faction.getAllRelations().values()) {
-                    if (r == Relation.TRUCE) truceCount++;
-                }
-                return String.valueOf(truceCount);
-            
-            // Rôle
+                return faction != null
+                        ? String.valueOf(
+                                faction.getTruceCount()
+                        )
+                        : "0";
+
             case "player_role":
-                return fPlayer.getRole() != null ? fPlayer.getRole().getDisplayName() : "";
-            
+            case "faction_role":
+                return playerView != null
+                        ? safe(
+                                playerView.getRoleDisplayName()
+                        )
+                        : "";
+
             case "player_role_prefix":
-                return fPlayer.getRole() != null ? fPlayer.getRole().getPrefix() : "";
-            
-            // Location
+                return playerView != null
+                        ? safe(
+                                playerView.getRolePrefix()
+                        )
+                        : "";
+
             case "location_faction":
-                FLocation loc = new FLocation(player.getLocation());
-                Faction atLoc = plugin.getClaimManager().getFactionAt(loc);
-                return atLoc != null ? atLoc.getName() : "Wilderness";
-            
+                return territoryName(
+                        api,
+                        player
+                );
+
             case "location_relation":
-                if (faction == null) return "NEUTRAL";
-                FLocation pLoc = new FLocation(player.getLocation());
-                Faction atPLoc = plugin.getClaimManager().getFactionAt(pLoc);
-                if (atPLoc == null) return "NEUTRAL";
-                if (atPLoc.getId().equals(faction.getId())) return "MEMBER";
-                Relation rel = faction.getRelationTo(atPLoc.getId());
-                return rel != null ? rel.name() : "NEUTRAL";
-            
-            // Warps
+                return territoryRelation(
+                        api,
+                        player
+                );
+
+            case "location_zone_id":
+                return territoryZoneId(
+                        api,
+                        player
+                );
+
+            case "location_zone_name":
+                return territoryZoneName(
+                        api,
+                        player
+                );
+
             case "faction_warps":
-                return faction != null ? String.valueOf(faction.getWarpCount()) : "0";
-            
+                return faction != null
+                        ? String.valueOf(
+                                faction.getWarpCount()
+                        )
+                        : "0";
+
             case "faction_maxwarps":
-                return String.valueOf(plugin.getConfigManager().getInt("warps.max-per-faction", 1));
-            
-            // Kills/Deaths joueur
+                return faction != null
+                        ? String.valueOf(
+                                faction.getMaxWarps()
+                        )
+                        : String.valueOf(
+                                api.getDefaultMaxWarps()
+                        );
+
             case "player_kills":
-                return String.valueOf(fPlayer.getKills());
-            
+                return playerView != null
+                        ? String.valueOf(
+                                playerView.getKills()
+                        )
+                        : "0";
+
             case "player_deaths":
-                return String.valueOf(fPlayer.getDeaths());
-            
+                return playerView != null
+                        ? String.valueOf(
+                                playerView.getDeaths()
+                        )
+                        : "0";
+
             case "player_kdr":
-                int deaths = fPlayer.getDeaths();
-                if (deaths == 0) return String.valueOf(fPlayer.getKills());
-                return String.format("%.2f", (double) fPlayer.getKills() / deaths);
-            
-            // Chat mode
+                return kdr(playerView);
+
             case "player_chatmode":
-                return fPlayer.getChatMode().name().toLowerCase();
-            
-            // Raidable
+                return playerView != null
+                        && playerView.getChatMode() != null
+                        ? playerView.getChatMode()
+                                .toLowerCase(
+                                        Locale.ROOT
+                                )
+                        : "public";
+
             case "faction_raidable":
-                if (faction == null) return "false";
-                return plugin.getClaimManager().isRaidable(faction) ? "true" : "false";
-            
-            // === Level System ===
+                return bool(
+                        faction != null
+                                && faction.isRaidable()
+                );
+
             case "faction_level":
-                return faction != null ? String.valueOf(faction.getLevel()) : "0";
-            
+                return faction != null
+                        ? String.valueOf(
+                                faction.getLevel()
+                        )
+                        : "0";
+
             case "faction_xp":
-                return "0"; // alias legacy: l'XP n'est plus utilisée
-            
             case "faction_required_xp":
-                return "0"; // alias legacy
+                return "0";
 
             case "faction_progress_percent":
-                return faction == null ? "0"
-                        : String.valueOf(plugin.getLevelManager()
-                                .getProgressPercent(faction));
-            
+                return progressionNumber(
+                        api,
+                        faction,
+                        ProgressField.PERCENT
+                );
+
             case "faction_progressbar":
-                if (faction == null) return "";
-                return plugin.getLevelManager().getProgressBar(faction);
-            
+                ProgressionView progress =
+                        progression(
+                                api,
+                                faction
+                        );
+
+                return progress != null
+                        ? progressBar(
+                                progress.getPercent(),
+                                20
+                        )
+                        : "";
+
             case "faction_category":
-                return ""; // les catégories ne sont plus sélectionnées
+                return "";
 
             case "faction_tier":
-                if (faction == null) return "";
-                MemberTierDefinition tier =
-                        plugin.getQuestManager().getCurrentTier(faction);
-                return tier == null ? "" : tier.getId();
+                ProgressionView tier =
+                        progression(
+                                api,
+                                faction
+                        );
+
+                return tier != null
+                        ? safe(tier.getTierId())
+                        : "";
 
             case "faction_tier_display":
-                if (faction == null) return "";
-                MemberTierDefinition displayTier =
-                        plugin.getQuestManager().getCurrentTier(faction);
-                return displayTier == null ? "" : displayTier.getDisplayName();
+                ProgressionView display =
+                        progression(
+                                api,
+                                faction
+                        );
+
+                return display != null
+                        ? safe(
+                                display.getTierDisplayName()
+                        )
+                        : "";
 
             case "faction_quests_total":
-                return faction == null ? "0" : String.valueOf(
-                        plugin.getQuestManager().getQuestViews(faction).size());
+                return progressionNumber(
+                        api,
+                        faction,
+                        ProgressField.TOTAL
+                );
 
             case "faction_quests_completed":
-                if (faction == null) return "0";
-                int completedQuests = 0;
-                for (QuestProgressView view
-                        : plugin.getQuestManager().getQuestViews(faction)) {
-                    if (view.isCompleted()) completedQuests++;
-                }
-                return String.valueOf(completedQuests);
-            
+                return progressionNumber(
+                        api,
+                        faction,
+                        ProgressField.COMPLETED
+                );
+
             case "faction_quests_remaining":
-                if (faction == null) return "0";
-                int remaining = 0;
-                for (QuestProgressView view
-                        : plugin.getQuestManager().getQuestViews(faction)) {
-                    if (!view.isCompleted()) remaining++;
-                }
-                return String.valueOf(remaining);
-            
+                ProgressionView remaining =
+                        progression(
+                                api,
+                                faction
+                        );
+
+                return remaining != null
+                        ? String.valueOf(
+                                Math.max(
+                                        0,
+                                        remaining.getTotalQuests()
+                                                - remaining.getCompletedQuests()
+                                )
+                        )
+                        : "0";
+
             case "faction_has_chest":
-                return faction != null && faction.hasChest() ? "true" : "false";
-            
+                return bool(
+                        faction != null
+                                && faction.isChestUnlocked()
+                );
+
             case "faction_has_fly":
-                return faction != null && faction.isFactionFlyEnabled() ? "true" : "false";
-            
+                return bool(
+                        faction != null
+                                && faction.isFactionFlyEnabled()
+                );
+
             case "faction_has_antisethome":
-                return faction != null && faction.isAntiSethomeEnabled() ? "true" : "false";
-            
-            // Display versions for GUIs (colored text)
+                return bool(
+                        faction != null
+                                && faction.isAntiSethomeEnabled()
+                );
+
             case "faction_has_chest_display":
-                return faction != null && faction.hasChest() ? "§a✔ Débloqué" : "§c✖ Verrouillé";
-            
+                return featureDisplay(
+                        faction != null
+                                && faction.isChestUnlocked(),
+                        "Débloqué",
+                        "Verrouillé"
+                );
+
             case "faction_has_fly_display":
-                return faction != null && faction.isFactionFlyEnabled() ? "§a✔ Débloqué" : "§c✖ Verrouillé";
-            
+                return featureDisplay(
+                        faction != null
+                                && faction.isFactionFlyEnabled(),
+                        "Débloqué",
+                        "Verrouillé"
+                );
+
             case "faction_has_antisethome_display":
-                return faction != null && faction.isAntiSethomeEnabled() ? "§a✔ Actif" : "§c✖ Verrouillé";
-            
-            // Role display
-            case "faction_role":
-                return fPlayer.getRole() != null ? fPlayer.getRole().getDisplayName() : "";
-            
+                return featureDisplay(
+                        faction != null
+                                && faction.isAntiSethomeEnabled(),
+                        "Actif",
+                        "Verrouillé"
+                );
+
             default:
-                // Gestion des placeholders de permission: perm_<role>_<permission>
-                return handlePermissionPlaceholder(identifier, faction);
+                return handlePermissionPlaceholder(
+                        api,
+                        key,
+                        faction
+                );
         }
     }
-    
-    /**
-     * Gère les placeholders de permission de format: perm_<role>_<permission>
-     * Ex: perm_recruit_build, perm_ally_container
-     * @return "§a✔ Activé" ou "§c✖ Désactivé" ou null si non trouvé
-     */
-    private String handlePermissionPlaceholder(String identifier, Faction faction) {
-        if (!identifier.startsWith("perm_") || faction == null) {
+
+    private KfactionApiV2 api() {
+        KfactionApiV2 current = cachedApi;
+
+        if (current == null) {
+            current = KfactionApis.get();
+
+            if (current != null) {
+                cachedApi = current;
+            }
+        }
+
+        return current;
+    }
+
+    private String handlePermissionPlaceholder(
+            KfactionApiV2 api,
+            String identifier,
+            FactionView faction
+    ) {
+        if (!identifier.startsWith("perm_")
+                || faction == null) {
             return null;
         }
-        
-        // Format: perm_<role>_<permission>
-        String[] parts = identifier.substring(5).split("_", 2);
-        if (parts.length < 2) return null;
-        
-        String roleStr = parts[0].toUpperCase();
-        String permStr = parts[1].toLowerCase();
-        
-        // Vérifier si c'est un rôle de membre
-        me.krunsh.kfaction.data.FactionRole role = parseRole(roleStr);
+
+        String[] parts =
+                identifier.substring(5)
+                        .split(
+                                "_",
+                                2
+                        );
+
+        if (parts.length != 2) {
+            return null;
+        }
+
+        Boolean role =
+                api.getRolePermission(
+                        faction.getId(),
+                        parts[0],
+                        parts[1]
+                );
+
         if (role != null) {
-            me.krunsh.kfaction.data.PermissionAction action = 
-                me.krunsh.kfaction.data.PermissionAction.fromConfigKey(permStr);
-            if (action == null) return null;
-            
-            boolean hasPermission = faction.hasPermission(role, action);
-            return hasPermission ? "§a✔ Activé" : "§c✖ Désactivé";
+            return enabledDisplay(
+                    role.booleanValue()
+            );
         }
-        
-        // Vérifier si c'est une relation
-        Relation relation = parseRelation(roleStr);
-        if (relation != null) {
-            me.krunsh.kfaction.data.PermissionAction action = 
-                me.krunsh.kfaction.data.PermissionAction.fromConfigKey(permStr);
-            if (action == null) return null;
-            
-            boolean hasPermission = faction.hasPermission(relation, action);
-            return hasPermission ? "§a✔ Activé" : "§c✖ Désactivé";
-        }
-        
-        return null;
+
+        Boolean relation =
+                api.getRelationPermission(
+                        faction.getId(),
+                        parts[0],
+                        parts[1]
+                );
+
+        return relation != null
+                ? enabledDisplay(
+                        relation.booleanValue()
+                )
+                : null;
     }
-    
-    private me.krunsh.kfaction.data.FactionRole parseRole(String str) {
-        try {
-            return me.krunsh.kfaction.data.FactionRole.valueOf(str);
-        } catch (IllegalArgumentException e) {
-            return null;
+
+    private static String leaderName(
+            FactionView faction
+    ) {
+        if (faction == null
+                || faction.getLeader() == null) {
+            return "";
+        }
+
+        UUID leader =
+                faction.getLeader();
+
+        for (MemberView member
+                : faction.getMembers()) {
+            if (member != null
+                    && leader.equals(
+                            member.getUuid()
+                    )) {
+                return safe(
+                        member.getName()
+                );
+            }
+        }
+
+        return leader.toString();
+    }
+
+    private static String territoryName(
+            KfactionApiV2 api,
+            Player player
+    ) {
+        TerritoryView territory =
+                api.getTerritory(
+                        new FLocation(
+                                player.getLocation()
+                        ),
+                        player.getUniqueId()
+                );
+
+        if (territory == null) {
+            return "Wilderness";
+        }
+
+        if (territory.getFactionName() != null) {
+            return territory.getFactionName();
+        }
+
+        switch (territory.getType()) {
+            case SAFEZONE:
+                return "SafeZone";
+
+            case WARZONE:
+                return "WarZone";
+
+            case GLOBAL_ZONE:
+                return territory.getZoneDisplayName() != null
+                        ? territory.getZoneDisplayName()
+                        : territory.getZoneId() != null
+                                ? territory.getZoneId()
+                                : "GlobalZone";
+
+            default:
+                return "Wilderness";
         }
     }
-    
-    private Relation parseRelation(String str) {
-        try {
-            return Relation.valueOf(str);
-        } catch (IllegalArgumentException e) {
-            return null;
+
+    private static String territoryZoneId(
+            KfactionApiV2 api,
+            Player player
+    ) {
+        TerritoryView territory =
+                api.getTerritory(
+                        new FLocation(
+                                player.getLocation()
+                        ),
+                        player.getUniqueId()
+                );
+
+        return territory != null
+                && territory.isGlobalZone()
+                && territory.getZoneId() != null
+                        ? territory.getZoneId()
+                        : "";
+    }
+
+    private static String territoryZoneName(
+            KfactionApiV2 api,
+            Player player
+    ) {
+        TerritoryView territory =
+                api.getTerritory(
+                        new FLocation(
+                                player.getLocation()
+                        ),
+                        player.getUniqueId()
+                );
+
+        return territory != null
+                && territory.isGlobalZone()
+                && territory.getZoneDisplayName() != null
+                        ? territory.getZoneDisplayName()
+                        : "";
+    }
+
+    private static String territoryRelation(
+            KfactionApiV2 api,
+            Player player
+    ) {
+        TerritoryView territory =
+                api.getTerritory(
+                        new FLocation(
+                                player.getLocation()
+                        ),
+                        player.getUniqueId()
+                );
+
+        return territory != null
+                && territory.getRelation() != null
+                ? territory.getRelation()
+                : "NEUTRAL";
+    }
+
+    private static ProgressionView progression(
+            KfactionApiV2 api,
+            FactionView faction
+    ) {
+        return faction != null
+                ? api.getProgression(
+                        faction.getId()
+                )
+                : null;
+    }
+
+    private static String progressionNumber(
+            KfactionApiV2 api,
+            FactionView faction,
+            ProgressField field
+    ) {
+        ProgressionView progress =
+                progression(
+                        api,
+                        faction
+                );
+
+        if (progress == null) {
+            return "0";
         }
+
+        switch (field) {
+            case COMPLETED:
+                return String.valueOf(
+                        progress.getCompletedQuests()
+                );
+
+            case TOTAL:
+                return String.valueOf(
+                        progress.getTotalQuests()
+                );
+
+            default:
+                return String.valueOf(
+                        progress.getPercent()
+                );
+        }
+    }
+
+    private static String kdr(
+            PlayerView player
+    ) {
+        if (player == null) {
+            return "0";
+        }
+
+        if (player.getDeaths() == 0) {
+            return String.valueOf(
+                    player.getKills()
+            );
+        }
+
+        return String.format(
+                Locale.US,
+                "%.2f",
+                (double) player.getKills()
+                        / player.getDeaths()
+        );
+    }
+
+    private static String number(
+            double value
+    ) {
+        long rounded =
+                Math.round(value);
+
+        if (Math.abs(
+                value - rounded
+        ) < 0.000001D) {
+            return String.valueOf(
+                    rounded
+            );
+        }
+
+        return String.format(
+                Locale.US,
+                "%.2f",
+                value
+        );
+    }
+
+    private static String progressBar(
+            int percent,
+            int length
+    ) {
+        int filled =
+                Math.max(
+                        0,
+                        Math.min(
+                                length,
+                                percent * length / 100
+                        )
+                );
+
+        StringBuilder value =
+                new StringBuilder("§a");
+
+        for (int index = 0;
+                index < length;
+                index++) {
+            if (index == filled) {
+                value.append("§7");
+            }
+
+            value.append("▌");
+        }
+
+        return value.toString();
+    }
+
+    private static String enabledDisplay(
+            boolean enabled
+    ) {
+        return enabled
+                ? "§a✔ Activé"
+                : "§c✖ Désactivé";
+    }
+
+    private static String featureDisplay(
+            boolean enabled,
+            String enabledText,
+            String disabledText
+    ) {
+        return enabled
+                ? "§a✔ " + enabledText
+                : "§c✖ " + disabledText;
+    }
+
+    private static String bool(
+            boolean value
+    ) {
+        return value
+                ? "true"
+                : "false";
+    }
+
+    private static String safe(
+            String value
+    ) {
+        return value != null
+                ? value
+                : "";
+    }
+
+    private enum ProgressField {
+        PERCENT,
+        COMPLETED,
+        TOTAL
     }
 }

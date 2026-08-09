@@ -4,4 +4,12 @@
 *.iml
 *.class
 *.log
+*.hprof
+*.db
+*.db-shm
+*.db-wal
+
+# Runtime data created by local server smokes
+/plugins/
+/logs/
 dependency-reduced-pom.xml

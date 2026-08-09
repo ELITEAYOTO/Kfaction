@@ -6,59 +6,99 @@ import org.bukkit.entity.Player;
 import me.krunsh.kfaction.Kfaction;
 import me.krunsh.kfaction.data.FPlayer;
 import me.krunsh.kfaction.data.Faction;
-import me.krunsh.kfaction.data.PermissionAction;
+import me.krunsh.kfaction.permissions.FactionCapability;
 
 /**
- * Commande /f unclaimall [confirm] - Libère tous les claims
+ * /f unclaimall [confirm]
  */
 public class UnclaimAllCommand extends SubCommand {
-    
+
     public UnclaimAllCommand(Kfaction plugin) {
         super(plugin);
     }
-    
+
     @Override
     public void execute(CommandSender sender, String[] args) {
         Player player = getPlayer(sender);
-        FPlayer fPlayer = plugin.getFPlayerManager().getFPlayer(player);
-        
-        if (!fPlayer.hasFaction()) {
+        if (player == null) return;
+
+        FPlayer fPlayer = plugin.getFPlayerManager()
+                .findLoaded(player.getUniqueId());
+
+        if (fPlayer == null || !fPlayer.hasFaction()) {
             sendMessage(sender, "general.no-faction");
             return;
         }
-        
-        Faction faction = plugin.getFactionManager().getPlayerFaction(player);
-        
-        // Vérifier permission (nécessite UNCLAIM ou être leader)
-        if (!faction.hasPermission(player.getUniqueId(), PermissionAction.UNCLAIM)) {
+
+        Faction faction = plugin.getFactionManager()
+                .getFaction(fPlayer.getFactionId());
+
+        if (faction == null) {
+            sendMessage(sender, "general.error");
+            return;
+        }
+
+        if (!plugin.getPermissionManager().can(
+                player,
+                FactionCapability.UNCLAIM
+        )) {
             sendMessage(sender, "general.no-permission");
             return;
         }
-        
-        // Demander confirmation
-        if (args.length == 0 || !args[0].equalsIgnoreCase("confirm")) {
-            int claimCount = faction.getClaimCount();
-            sendMessage(sender, "unclaimall.confirm", 
-                "{count}", String.valueOf(claimCount));
+
+        if (args.length == 0
+                || !args[0].equalsIgnoreCase("confirm")) {
+            sendMessage(
+                    sender,
+                    "unclaimall.confirm",
+                    "{count}",
+                    String.valueOf(
+                            faction.getClaimCount()
+                    )
+            );
             return;
         }
-        
-        // Unclaim tout
-        int count = faction.getClaimCount();
-        plugin.getClaimManager().unclaimAll(faction);
-        
-        sendMessage(sender, "unclaimall.success", "{count}", String.valueOf(count));
-        
-        // Broadcast à la faction
-        for (Player member : faction.getOnlinePlayers()) {
+
+        /*
+         * Revalidation au moment de la confirmation.
+         */
+        if (!plugin.getPermissionManager().can(
+                player,
+                FactionCapability.UNCLAIM
+        )) {
+            sendMessage(sender, "general.no-permission");
+            return;
+        }
+
+        int count =
+                faction.getClaimCount();
+
+        plugin.getClaimManager()
+                .unclaimAll(faction);
+
+        sendMessage(
+                sender,
+                "unclaimall.success",
+                "{count}",
+                String.valueOf(count)
+        );
+
+        for (Player member
+                : faction.getOnlinePlayers()) {
             if (!member.equals(player)) {
-                plugin.getMessageManager().send(member, "unclaimall.broadcast",
-                    "{player}", player.getName(),
-                    "{count}", String.valueOf(count));
+                plugin.getMessageManager()
+                        .send(
+                                member,
+                                "unclaimall.broadcast",
+                                "{player}",
+                                player.getName(),
+                                "{count}",
+                                String.valueOf(count)
+                        );
             }
         }
     }
-    
+
     @Override public String getName() { return "unclaimall"; }
     @Override public String getDescription() { return "Libère tous les claims de la faction"; }
     @Override public String getUsage() { return "[confirm]"; }

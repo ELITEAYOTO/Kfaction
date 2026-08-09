@@ -21,6 +21,104 @@ public final class ProgressionPolicy {
         return locked;
     }
 
+    /**
+     * Variante strictement read-only de la résolution de tranche.
+     *
+     * Contrairement à refreshLockedTier(), cette méthode ne modifie jamais
+     * FactionProgressState. Elle est destinée aux APIs de lecture/snapshots.
+     */
+    public static MemberTierDefinition resolveLockedTierReadOnly(
+            ProgressionConfig config,
+            FactionProgressState state,
+            int currentMembers
+    ) {
+        if (config == null
+                || state == null) {
+            return null;
+        }
+
+        MemberTierDefinition current =
+                config.findTier(
+                        currentMembers
+                );
+
+        if (current == null) {
+            return null;
+        }
+
+        MemberTierDefinition locked =
+                state.getLockedTierId() == null
+                        ? null
+                        : config.getTier(
+                                state.getLockedTierId()
+                        );
+
+        if (locked == null
+                || current.getRank()
+                        > locked.getRank()) {
+            /*
+             * Retourner la tranche qui SERAIT verrouillée, sans appeler
+             * state.lockTier().
+             */
+            return current;
+        }
+
+        return locked;
+    }
+
+    public static List<QuestProgressView> viewsReadOnly(
+            ProgressionConfig config,
+            FactionProgressState state,
+            int level,
+            int currentMembers
+    ) {
+        MemberTierDefinition tier =
+                resolveLockedTierReadOnly(
+                        config,
+                        state,
+                        currentMembers
+                );
+
+        LevelDefinition levelDefinition =
+                config != null
+                        ? config.getLevel(level)
+                        : null;
+
+        if (tier == null
+                || levelDefinition == null) {
+            return Collections.emptyList();
+        }
+
+        TierLevelDefinition tierLevel =
+                levelDefinition.getTier(
+                        tier.getId()
+                );
+
+        if (tierLevel == null) {
+            return Collections.emptyList();
+        }
+
+        List<QuestProgressView> result =
+                new ArrayList<QuestProgressView>();
+
+        for (QuestDefinition quest
+                : tierLevel.getQuests()
+                        .values()) {
+            result.add(
+                    new QuestProgressView(
+                            quest,
+                            state.getProgress(
+                                    quest.getId()
+                            )
+                    )
+            );
+        }
+
+        return Collections.unmodifiableList(
+                result
+        );
+    }
+
     public static List<QuestProgressView> views(ProgressionConfig config,
             FactionProgressState state, int level, int currentMembers) {
         MemberTierDefinition tier = refreshLockedTier(config, state, currentMembers);

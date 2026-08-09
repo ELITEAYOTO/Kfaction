@@ -1,114 +1,190 @@
 package me.krunsh.kfaction.data;
 
+import java.text.Normalizer;
+import java.util.Locale;
+
 /**
- * Rôles/Rangs au sein d'une faction
- * Ordonnés par priorité croissante
+ * Rôles internes d'une faction.
+ *
+ * IMPORTANT :
+ * - l'ordre des constantes définit la hiérarchie ;
+ * - les noms Java restent stables pour le stockage et l'API ;
+ * - les noms d'affichage pourront être déplacés vers le futur système de locale.
+ *
+ * Hiérarchie V2 :
+ * RECRUIT < MEMBER < OFFICER < MODERATOR < COLEADER < LEADER
  */
 public enum FactionRole {
-    
+
     RECRUIT(0, "Recrue", "recruit", ""),
     MEMBER(100, "Membre", "member", ""),
-    MODERATOR(200, "Modérateur", "moderator", "&e✦ "),
-    COLEADER(300, "Sous-Chef", "coleader", "&6★ "),
-    LEADER(400, "Chef", "leader", "&c✮ ");
-    
+    OFFICER(200, "Officier", "officer", "&a✦ "),
+    MODERATOR(300, "Modérateur", "moderator", "&e✦ "),
+    COLEADER(400, "Co-Leader", "coleader", "&6★ "),
+    LEADER(500, "Leader", "leader", "&c✮ ");
+
     private final int priority;
     private final String displayName;
     private final String configKey;
     private final String prefix;
-    
+
     FactionRole(int priority, String displayName, String configKey, String prefix) {
         this.priority = priority;
         this.displayName = displayName;
         this.configKey = configKey;
         this.prefix = prefix;
     }
-    
+
     /**
-     * @return Priorité du rang (plus haut = plus de pouvoir)
+     * @return priorité du rang. Plus la valeur est haute, plus le rang est élevé.
      */
     public int getPriority() {
         return priority;
     }
-    
+
     /**
-     * @return Nom d'affichage traduit
+     * Nom d'affichage par défaut.
+     *
+     * Sera remplacé plus tard par le système de locale/config V2.
      */
     public String getDisplayName() {
         return displayName;
     }
-    
+
     /**
-     * @return Clé de configuration YAML
+     * Clé stable utilisée dans les configurations.
      */
     public String getConfigKey() {
         return configKey;
     }
-    
+
     /**
-     * @return Préfixe à afficher devant le nom
+     * Préfixe d'affichage par défaut.
+     *
+     * Sera lui aussi rendu configurable dans la V2.
      */
     public String getPrefix() {
         return prefix;
     }
-    
-    /**
-     * Vérifie si ce rang est au moins égal à un autre
-     * @param other L'autre rang à comparer
-     * @return true si ce rang >= other
-     */
+
     public boolean isAtLeast(FactionRole other) {
-        return this.priority >= other.priority;
+        return other != null && this.priority >= other.priority;
     }
-    
-    /**
-     * Vérifie si ce rang est supérieur à un autre
-     * @param other L'autre rang à comparer
-     * @return true si ce rang > other
-     */
+
     public boolean isHigherThan(FactionRole other) {
-        return this.priority > other.priority;
+        return other != null && this.priority > other.priority;
     }
-    
+
+    public boolean isLowerThan(FactionRole other) {
+        return other != null && this.priority < other.priority;
+    }
+
     /**
-     * Obtient le rang suivant (promotion)
-     * @return Le rang supérieur ou null si déjà LEADER
+     * @return rang immédiatement supérieur, ou null pour LEADER.
      */
     public FactionRole getNextRole() {
+        int nextOrdinal = ordinal() + 1;
         FactionRole[] roles = values();
-        for (int i = 0; i < roles.length - 1; i++) {
-            if (roles[i] == this) {
-                return roles[i + 1];
-            }
-        }
-        return null; // Déjà LEADER
+        return nextOrdinal < roles.length ? roles[nextOrdinal] : null;
     }
-    
+
     /**
-     * Obtient le rang précédent (rétrogradation)
-     * @return Le rang inférieur ou null si déjà RECRUIT
+     * @return rang immédiatement inférieur, ou null pour RECRUIT.
      */
     public FactionRole getPreviousRole() {
-        FactionRole[] roles = values();
-        for (int i = 1; i < roles.length; i++) {
-            if (roles[i] == this) {
-                return roles[i - 1];
-            }
-        }
-        return null; // Déjà RECRUIT
+        int previousOrdinal = ordinal() - 1;
+        return previousOrdinal >= 0 ? values()[previousOrdinal] : null;
     }
-    
+
     /**
-     * Obtient un rôle par sa clé de configuration
-     * @param key La clé (ex: "recruit", "member")
-     * @return Le rôle ou RECRUIT par défaut
+     * Promotion classique de faction.
+     *
+     * Le passage COLEADER -> LEADER doit rester une vraie opération de transfert
+     * de leadership et ne doit pas être réalisé par une simple promotion.
+     */
+    public boolean canBePromotedNormally() {
+        return this != COLEADER && this != LEADER;
+    }
+
+    /**
+     * Le LEADER ne peut pas être rétrogradé par la commande standard.
+     */
+    public boolean canBeDemotedNormally() {
+        return this != RECRUIT && this != LEADER;
+    }
+
+    /**
+     * Résout une clé de configuration.
+     *
+     * Compatibilité conservée : RECRUIT est retourné si la valeur est inconnue.
      */
     public static FactionRole fromConfigKey(String key) {
-        for (FactionRole role : values()) {
-            if (role.configKey.equalsIgnoreCase(key)) {
-                return role;
-            }
+        FactionRole role = parse(key);
+        return role != null ? role : RECRUIT;
+    }
+
+    /**
+     * Parse un rôle depuis une entrée utilisateur/config.
+     *
+     * Les commandes officielles resteront en anglais, mais quelques alias
+     * français sont acceptés gratuitement pour la compatibilité/confort.
+     *
+     * @return rôle correspondant, ou null si inconnu.
+     */
+    public static FactionRole parse(String input) {
+        if (input == null) {
+            return null;
         }
-        return RECRUIT;
+
+        String value = normalize(input);
+        if (value.isEmpty()) {
+            return null;
+        }
+
+        switch (value) {
+            case "recruit":
+            case "recrue":
+            case "r":
+                return RECRUIT;
+
+            case "member":
+            case "membre":
+            case "m":
+                return MEMBER;
+
+            case "officer":
+            case "officier":
+            case "off":
+            case "o":
+                return OFFICER;
+
+            case "moderator":
+            case "moderateur":
+            case "mod":
+                return MODERATOR;
+
+            case "coleader":
+            case "co-leader":
+            case "co_leader":
+            case "colead":
+            case "co":
+            case "cl":
+                return COLEADER;
+
+            case "leader":
+            case "lead":
+            case "l":
+            case "chef":
+                return LEADER;
+
+            default:
+                return null;
+        }
+    }
+
+    private static String normalize(String input) {
+        String lower = input.trim().toLowerCase(Locale.ROOT);
+        String normalized = Normalizer.normalize(lower, Normalizer.Form.NFD);
+        return normalized.replaceAll("\\p{M}", "");
     }
 }

@@ -1,7 +1,9 @@
 package me.krunsh.kfaction.managers;
 
+import java.util.Locale;
 import java.util.UUID;
 
+import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitTask;
 
@@ -10,17 +12,22 @@ import me.krunsh.kfaction.data.FPlayer;
 import me.krunsh.kfaction.data.Faction;
 import me.krunsh.kfaction.policy.FactionPowerMath;
 import me.krunsh.kfaction.policy.PowerBonusPolicy;
+import me.krunsh.kfaction.utils.KfactionLogger;
 
 /**
- * Gestionnaire du système de power
- * Gère la régénération automatique et les modifications de power
+ * Gestionnaire du système de power.
+ *
+ * Lot25D:
+ * - toutes les mutations de FPlayer se font sur le Bukkit main thread;
+ * - aucun Player/permission Bukkit n'est lu depuis une tâche async;
+ * - les bonus de permission augmentent réellement le plafond runtime;
+ * - clés config/messages alignées sur les resources finales.
  */
 public class PowerManager {
-    
+
     private final Kfaction plugin;
     private BukkitTask regenTask;
-    
-    // Configuration (cachée pour performance)
+
     private double startPower;
     private double maxPower;
     private double minPower;
@@ -28,285 +35,588 @@ public class PowerManager {
     private double powerLossOnDeath;
     private double regenPerMinute;
     private boolean offlineRegen;
-    
-    // Bonus de permission (cachés pour éviter des appels à getDouble sur chaque calcul de power)
+
     private boolean permissionBonusesEnabled;
     private double bonusVip;
     private double bonusMvp;
     private double bonusLegend;
-    
-    public PowerManager(Kfaction plugin) {
+
+    public PowerManager(
+            Kfaction plugin
+    ) {
         this.plugin = plugin;
     }
-    
-    /**
-     * Initialise le manager et lance la régénération
-     */
+
     public void initialize() {
         loadConfig();
         startRegenTask();
-        plugin.getLogger().info("PowerManager initialisé (regen: " + regenPerMinute + "/min)");
+
+        KfactionLogger.debug(
+                plugin,
+                "PowerManager: regen="
+                        + regenPerMinute
+                        + "/min, offline="
+                        + offlineRegen
+        );
     }
-    
-    /**
-     * Arrête le manager
-     */
+
     public void shutdown() {
         if (regenTask != null) {
             regenTask.cancel();
             regenTask = null;
         }
     }
-    
-    /**
-     * Recharge la configuration
-     */
+
     public void loadConfig() {
-        startPower = plugin.getConfigManager().getDouble("power.start", 10.0);
-        maxPower = plugin.getConfigManager().getDouble("power.max", 10.0);
-        minPower = plugin.getConfigManager().getDouble("power.min", -10.0);
-        powerPerKill = plugin.getConfigManager().getDouble("power.per-kill", 1.0);
-        powerLossOnDeath = plugin.getConfigManager().getDouble("power.loss-per-death",
-            plugin.getConfigManager().getDouble("power.loss-on-death", 2.0));
-        regenPerMinute = plugin.getConfigManager().getDouble("power.regen-per-minute", 0.2);
-        offlineRegen = plugin.getConfigManager().getBoolean("power.offline-regen", false);
-        // Aucun bonus implicite : seuls ceux réellement configurés sont appliqués.
-        permissionBonusesEnabled = plugin.getConfigManager().getBoolean(
-            "power.bonus.enabled", true);
-        bonusVip = plugin.getConfigManager().getDouble("power.bonus.vip", 0.0);
-        bonusMvp = plugin.getConfigManager().getDouble("power.bonus.mvp", 0.0);
-        bonusLegend = plugin.getConfigManager().getDouble("power.bonus.legend", 0.0);
+        startPower =
+                plugin.getConfigManager()
+                        .getDouble(
+                                "power.start",
+                                10.0D
+                        );
+
+        maxPower =
+                plugin.getConfigManager()
+                        .getDouble(
+                                "power.max",
+                                10.0D
+                        );
+
+        minPower =
+                plugin.getConfigManager()
+                        .getDouble(
+                                "power.min",
+                                -10.0D
+                        );
+
+        powerPerKill =
+                plugin.getConfigManager()
+                        .getDouble(
+                                "power.per-kill",
+                                1.0D
+                        );
+
+        powerLossOnDeath =
+                plugin.getConfigManager()
+                        .getDouble(
+                                "power.loss-per-death",
+                                2.0D
+                        );
+
+        regenPerMinute =
+                plugin.getConfigManager()
+                        .getDouble(
+                                "power.regen-per-minute",
+                                0.1D
+                        );
+
+        offlineRegen =
+                plugin.getConfigManager()
+                        .getBoolean(
+                                "power.offline-regen",
+                                false
+                        );
+
+        permissionBonusesEnabled =
+                plugin.getConfigManager()
+                        .getBoolean(
+                                "power.bonus.enabled",
+                                true
+                        );
+
+        bonusVip =
+                plugin.getConfigManager()
+                        .getDouble(
+                                "power.bonus.vip",
+                                0.0D
+                        );
+
+        bonusMvp =
+                plugin.getConfigManager()
+                        .getDouble(
+                                "power.bonus.mvp",
+                                0.0D
+                        );
+
+        bonusLegend =
+                plugin.getConfigManager()
+                        .getDouble(
+                                "power.bonus.legend",
+                                0.0D
+                        );
     }
-    
-    // === Power joueur ===
-    
-    /**
-     * Obtient le power d'un joueur
-     * @param uuid UUID du joueur
-     * @return Le power actuel
-     */
-    public double getPlayerPower(UUID uuid) {
-        FPlayer fPlayer = plugin.getFPlayerManager().getFPlayer(uuid);
-        return fPlayer != null ? fPlayer.getPower() : startPower;
-    }
-    
-    /**
-     * Obtient le power maximum d'un joueur
-     * Peut être modifié par des permissions ou bonus
-     * @param uuid UUID du joueur
-     * @return Le power maximum
-     */
-    public double getPlayerMaxPower(UUID uuid) {
-        // La source de vérité du maximum de base est power.max. Une ancienne
-        // valeur sérialisée ne doit pas figer toutes les factions à 10.
-        double base = maxPower;
-        
-        // Appliquer les bonus de permission (valeurs cachées au loadConfig)
-        Player player = plugin.getServer().getPlayer(uuid);
-        if (player != null) {
-            base = PowerBonusPolicy.apply(base, permissionBonusesEnabled,
-                player.hasPermission("kfaction.power.bonus.vip"), bonusVip,
-                player.hasPermission("kfaction.power.bonus.mvp"), bonusMvp,
-                player.hasPermission("kfaction.power.bonus.legend"), bonusLegend);
+
+    // ============================================================
+    // Player power
+    // ============================================================
+
+    public double getPlayerPower(
+            UUID uuid
+    ) {
+        if (uuid == null) {
+            return startPower;
         }
-        
+
+        FPlayer fPlayer =
+                plugin.getFPlayerManager()
+                        .findLoaded(
+                                uuid
+                        );
+
+        if (fPlayer == null
+                && Bukkit.isPrimaryThread()) {
+            fPlayer =
+                    plugin.getFPlayerManager()
+                            .find(
+                                    uuid
+                            );
+        }
+
+        return fPlayer != null
+                ? fPlayer.getPower()
+                : startPower;
+    }
+
+    public double getPlayerMaxPower(
+            UUID uuid
+    ) {
+        double base =
+                maxPower;
+
+        if (uuid == null
+                || !Bukkit.isPrimaryThread()) {
+            return base;
+        }
+
+        Player player =
+                plugin.getServer()
+                        .getPlayer(
+                                uuid
+                        );
+
+        if (player != null) {
+            base =
+                    PowerBonusPolicy.apply(
+                            base,
+                            permissionBonusesEnabled,
+                            player.hasPermission(
+                                    "kfaction.power.bonus.vip"
+                            ),
+                            bonusVip,
+                            player.hasPermission(
+                                    "kfaction.power.bonus.mvp"
+                            ),
+                            bonusMvp,
+                            player.hasPermission(
+                                    "kfaction.power.bonus.legend"
+                            ),
+                            bonusLegend
+                    );
+        }
+
         return base;
     }
-    
-    /**
-     * Modifie le power d'un joueur
-     * @param uuid UUID du joueur
-     * @param power Nouveau power
-     */
-    public void setPlayerPower(UUID uuid, double power) {
-        FPlayer fPlayer = plugin.getFPlayerManager().getFPlayer(uuid);
-        if (fPlayer == null) return;
-        
-        double max = getPlayerMaxPower(uuid);
-        power = Math.max(minPower, Math.min(power, max));
-        fPlayer.setPower(power);
-        plugin.getStorageManager().markDirty(fPlayer);
-    }
-    
-    /**
-     * Ajoute du power à un joueur
-     * @param uuid UUID du joueur
-     * @param amount Quantité à ajouter
-     */
-    public void addPlayerPower(UUID uuid, double amount) {
-        double current = getPlayerPower(uuid);
-        setPlayerPower(uuid, current + amount);
-    }
-    
-    /**
-     * Retire du power à un joueur
-     * @param uuid UUID du joueur
-     * @param amount Quantité à retirer
-     */
-    public void removePlayerPower(UUID uuid, double amount) {
-        double current = getPlayerPower(uuid);
-        setPlayerPower(uuid, current - amount);
-    }
-    
-    // === Power faction ===
-    
-    /**
-     * Calcule le power total d'une faction
-     * @param faction La faction
-     * @return Le power total (somme des membres + boost)
-     */
-    public double getFactionPower(Faction faction) {
-        if (faction == null || faction.isSystemFaction()) {
-            return 0;
+
+    public void setPlayerPower(
+            UUID uuid,
+            double power
+    ) {
+        if (uuid == null) {
+            return;
         }
-        
-        double total = FactionPowerMath.start(faction.getFactionPowerBoost());
-        
-        for (UUID memberUuid : faction.getMembers()) {
-            total = FactionPowerMath.addMember(total, getPlayerPower(memberUuid));
+
+        if (!Bukkit.isPrimaryThread()) {
+            final UUID capturedUuid =
+                    uuid;
+
+            final double capturedPower =
+                    power;
+
+            Bukkit.getScheduler()
+                    .runTask(
+                            plugin,
+                            new Runnable() {
+                                @Override
+                                public void run() {
+                                    setPlayerPower(
+                                            capturedUuid,
+                                            capturedPower
+                                    );
+                                }
+                            }
+                    );
+
+            return;
         }
-        
+
+        FPlayer fPlayer =
+                plugin.getFPlayerManager()
+                        .find(
+                                uuid
+                        );
+
+        if (fPlayer == null) {
+            return;
+        }
+
+        double effectiveMax =
+                getPlayerMaxPower(
+                        uuid
+                );
+
+        fPlayer.setPowerWithEffectiveMax(
+                power,
+                minPower,
+                effectiveMax
+        );
+
+        plugin.getStorageManager()
+                .markDirty(
+                        fPlayer
+                );
+    }
+
+    public void addPlayerPower(
+            UUID uuid,
+            double amount
+    ) {
+        setPlayerPower(
+                uuid,
+                getPlayerPower(uuid)
+                        + amount
+        );
+    }
+
+    public void removePlayerPower(
+            UUID uuid,
+            double amount
+    ) {
+        setPlayerPower(
+                uuid,
+                getPlayerPower(uuid)
+                        - amount
+        );
+    }
+
+    // ============================================================
+    // Faction power
+    // ============================================================
+
+    public double getFactionPower(
+            Faction faction
+    ) {
+        if (faction == null
+                || faction.isSystemFaction()) {
+            return 0.0D;
+        }
+
+        double total =
+                FactionPowerMath.start(
+                        faction.getFactionPowerBoost()
+                );
+
+        for (UUID memberUuid
+                : faction.getMembers()) {
+            total =
+                    FactionPowerMath.addMember(
+                            total,
+                            getPlayerPower(
+                                    memberUuid
+                            )
+                    );
+        }
+
         return total;
     }
-    
-    /**
-     * Calcule le power maximum d'une faction
-     * @param faction La faction
-     * @return Le power max total
-     */
-    public double getFactionMaxPower(Faction faction) {
-        if (faction == null || faction.isSystemFaction()) {
-            return 0;
+
+    public double getFactionMaxPower(
+            Faction faction
+    ) {
+        if (faction == null
+                || faction.isSystemFaction()) {
+            return 0.0D;
         }
-        
-        double total = FactionPowerMath.start(faction.getFactionPowerBoost());
-        
-        for (UUID memberUuid : faction.getMembers()) {
-            total = FactionPowerMath.addMember(total, getPlayerMaxPower(memberUuid));
+
+        double total =
+                FactionPowerMath.start(
+                        faction.getFactionPowerBoost()
+                );
+
+        for (UUID memberUuid
+                : faction.getMembers()) {
+            total =
+                    FactionPowerMath.addMember(
+                            total,
+                            getPlayerMaxPower(
+                                    memberUuid
+                            )
+                    );
         }
-        
+
         return total;
     }
-    
-    // === Événements ===
-    
-    /**
-     * Appelé quand un joueur fait un kill
-     * @param killerUuid UUID du tueur
-     * @param victimUuid UUID de la victime
-     */
-    public void onPlayerKill(UUID killerUuid, UUID victimUuid) {
-        // Ajouter power au tueur
-        addPlayerPower(killerUuid, powerPerKill);
-        
-        // Notifier
-        Player killer = plugin.getServer().getPlayer(killerUuid);
+
+    // ============================================================
+    // Events
+    // ============================================================
+
+    public void onPlayerKill(
+            UUID killerUuid,
+            UUID victimUuid
+    ) {
+        if (!Bukkit.isPrimaryThread()) {
+            final UUID capturedKiller =
+                    killerUuid;
+
+            final UUID capturedVictim =
+                    victimUuid;
+
+            Bukkit.getScheduler()
+                    .runTask(
+                            plugin,
+                            new Runnable() {
+                                @Override
+                                public void run() {
+                                    onPlayerKill(
+                                            capturedKiller,
+                                            capturedVictim
+                                    );
+                                }
+                            }
+                    );
+
+            return;
+        }
+
+        addPlayerPower(
+                killerUuid,
+                powerPerKill
+        );
+
+        Player killer =
+                plugin.getServer()
+                        .getPlayer(
+                                killerUuid
+                        );
+
         if (killer != null) {
-            String msg = plugin.getMessageManager().get("power.gain-kill")
-                    .replace("{amount}", String.format("%.1f", powerPerKill));
-            killer.sendMessage(msg);
+            killer.sendMessage(
+                    plugin.getMessageManager()
+                            .get(
+                                    "power.gain-kill",
+                                    "{amount}",
+                                    format(powerPerKill)
+                            )
+            );
         }
     }
-    
-    /**
-     * Appelé quand un joueur meurt
-     * @param uuid UUID du joueur mort
-     */
-    public void onPlayerDeath(UUID uuid) {
-        // Retirer power
-        removePlayerPower(uuid, powerLossOnDeath);
-        
-        // Notifier
-        Player player = plugin.getServer().getPlayer(uuid);
-        if (player != null) {
-            String msg = plugin.getMessageManager().get("power.loss-death")
-                    .replace("{amount}", String.format("%.1f", powerLossOnDeath));
-            player.sendMessage(msg);
+
+    public void onPlayerDeath(
+            UUID uuid
+    ) {
+        if (!Bukkit.isPrimaryThread()) {
+            final UUID captured =
+                    uuid;
+
+            Bukkit.getScheduler()
+                    .runTask(
+                            plugin,
+                            new Runnable() {
+                                @Override
+                                public void run() {
+                                    onPlayerDeath(
+                                            captured
+                                    );
+                                }
+                            }
+                    );
+
+            return;
         }
-        
-        // Vérifier si la faction devient raidable
-        FPlayer fPlayer = plugin.getFPlayerManager().getFPlayer(uuid);
-        if (fPlayer != null && fPlayer.hasFaction()) {
-            Faction faction = plugin.getFactionManager().getFaction(fPlayer.getFactionId());
-            if (faction != null && plugin.getClaimManager().isRaidable(faction)) {
-                // Notifier la faction
-                faction.broadcast(plugin.getMessageManager().get("power.faction-raidable"));
+
+        removePlayerPower(
+                uuid,
+                powerLossOnDeath
+        );
+
+        Player player =
+                plugin.getServer()
+                        .getPlayer(
+                                uuid
+                        );
+
+        if (player != null) {
+            player.sendMessage(
+                    plugin.getMessageManager()
+                            .get(
+                                    "power.loss-death",
+                                    "{amount}",
+                                    format(
+                                            powerLossOnDeath
+                                    )
+                            )
+            );
+        }
+
+        FPlayer fPlayer =
+                plugin.getFPlayerManager()
+                        .findLoaded(
+                                uuid
+                        );
+
+        if (fPlayer != null
+                && fPlayer.hasFaction()) {
+            Faction faction =
+                    plugin.getFactionManager()
+                            .getFaction(
+                                    fPlayer.getFactionId()
+                            );
+
+            if (faction != null
+                    && plugin.getClaimManager()
+                            .isRaidable(
+                                    faction
+                            )) {
+                faction.broadcast(
+                        plugin.getMessageManager()
+                                .get(
+                                        "power.faction-raidable"
+                                )
+                );
             }
         }
     }
-    
-    // === Régénération ===
-    
-    /**
-     * Lance la tâche de régénération automatique
-     */
+
+    // ============================================================
+    // Regeneration
+    // ============================================================
+
     private void startRegenTask() {
         if (regenTask != null) {
             regenTask.cancel();
         }
-        
-        // Exécuter toutes les minutes
-        regenTask = plugin.getServer().getScheduler().runTaskTimerAsynchronously(plugin, () -> {
-            regeneratePower();
-        }, 20L * 60, 20L * 60); // Toutes les 60 secondes
+
+        /*
+         * IMPORTANT:
+         * synchrone volontairement.
+         *
+         * regeneratePower lit les permissions Bukkit des joueurs et mute les
+         * FPlayer; ces opérations appartiennent au main thread.
+         */
+        regenTask =
+                plugin.getServer()
+                        .getScheduler()
+                        .runTaskTimer(
+                                plugin,
+                                new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        regeneratePower();
+                                    }
+                                },
+                                20L * 60L,
+                                20L * 60L
+                        );
     }
-    
-    /**
-     * Régénère le power de tous les joueurs
-     */
+
     private void regeneratePower() {
-        for (FPlayer fPlayer : plugin.getFPlayerManager().getAllPlayers()) {
-            if (!offlineRegen && !fPlayer.isOnline()) {
+        if (!Bukkit.isPrimaryThread()) {
+            throw new IllegalStateException(
+                    "Power regeneration must run on Bukkit primary thread"
+            );
+        }
+
+        for (FPlayer fPlayer
+                : plugin.getFPlayerManager()
+                        .getAllPlayers()) {
+            if (fPlayer == null) {
                 continue;
             }
-            
-            if (fPlayer.isAtMaxPower()) {
+
+            if (!offlineRegen
+                    && !fPlayer.isOnline()) {
                 continue;
             }
-            
-            double current = fPlayer.getPower();
-            double max = getPlayerMaxPower(fPlayer.getUuid());
-            double newPower = Math.min(current + regenPerMinute, max);
-            
+
+            double current =
+                    fPlayer.getPower();
+
+            double effectiveMax =
+                    getPlayerMaxPower(
+                            fPlayer.getUuid()
+                    );
+
+            if (current >= effectiveMax) {
+                continue;
+            }
+
+            double newPower =
+                    Math.min(
+                            current
+                                    + regenPerMinute,
+                            effectiveMax
+                    );
+
             if (newPower > current) {
-                fPlayer.setPower(newPower);
-                plugin.getStorageManager().markDirty(fPlayer);
+                fPlayer.setPowerWithEffectiveMax(
+                        newPower,
+                        minPower,
+                        effectiveMax
+                );
+
+                plugin.getStorageManager()
+                        .markDirty(
+                                fPlayer
+                        );
             }
         }
     }
-    
-    /**
-     * Régénère manuellement le power d'un joueur
-     * @param uuid UUID du joueur
-     * @param amount Quantité à régénérer
-     */
-    public void regenerate(UUID uuid, double amount) {
-        addPlayerPower(uuid, amount);
+
+    public void regenerate(
+            UUID uuid,
+            double amount
+    ) {
+        addPlayerPower(
+                uuid,
+                amount
+        );
     }
-    
-    // === Getters config ===
-    
+
+    // ============================================================
+    // Config getters
+    // ============================================================
+
     public double getStartPower() {
         return startPower;
     }
-    
+
     public double getMaxPower() {
         return maxPower;
     }
-    
+
     public double getMinPower() {
         return minPower;
     }
-    
+
     public double getPowerPerKill() {
         return powerPerKill;
     }
-    
+
     public double getPowerLossOnDeath() {
         return powerLossOnDeath;
     }
-    
+
     public double getRegenPerMinute() {
         return regenPerMinute;
+    }
+
+    private static String format(
+            double value
+    ) {
+        return String.format(
+                Locale.ROOT,
+                "%.1f",
+                value
+        );
     }
 }

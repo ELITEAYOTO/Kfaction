@@ -6,9 +6,11 @@ import org.bukkit.entity.Player;
 import me.krunsh.kfaction.Kfaction;
 import me.krunsh.kfaction.data.FPlayer;
 import me.krunsh.kfaction.data.Faction;
-import me.krunsh.kfaction.data.PermissionAction;
+import me.krunsh.kfaction.permissions.FactionCapability;
 
-/** /f rename <nouveau_nom> — renommage joueur avec index atomique. */
+/**
+ * /f rename <nouveau_nom>
+ */
 public class RenameCommand extends SubCommand {
 
     public RenameCommand(Kfaction plugin) {
@@ -20,43 +22,73 @@ public class RenameCommand extends SubCommand {
         Player player = getPlayer(sender);
         if (player == null) return;
 
-        FPlayer fPlayer = plugin.getFPlayerManager().getFPlayer(player);
-        if (!fPlayer.hasFaction()) {
+        FPlayer fPlayer = plugin.getFPlayerManager()
+                .findLoaded(player.getUniqueId());
+
+        if (fPlayer == null || !fPlayer.hasFaction()) {
             sendMessage(sender, "rename.not-in-faction");
             return;
         }
+
         if (args.length != 1) {
             sendMessage(sender, "rename.usage");
             return;
         }
 
-        Faction faction = plugin.getFactionManager().getFaction(fPlayer.getFactionId());
+        Faction faction = plugin.getFactionManager()
+                .getFaction(fPlayer.getFactionId());
+
         if (faction == null) {
             sendMessage(sender, "general.error");
             return;
         }
-        if (!faction.hasPermission(player.getUniqueId(), PermissionAction.RENAME)) {
+
+        if (!plugin.getPermissionManager().can(
+                player,
+                FactionCapability.RENAME
+        )) {
             sendMessage(sender, "general.no-permission");
             return;
         }
 
         String newName = args[0];
+
         if (!plugin.getFactionManager().isValidName(newName)) {
             sendMessage(sender, "rename.invalid-name");
             return;
         }
+
         if (!plugin.getFactionManager().isNameAvailable(newName)) {
-            sendMessage(sender, "rename.name-taken", "{name}", newName);
+            sendMessage(
+                    sender,
+                    "rename.name-taken",
+                    "{name}",
+                    newName
+            );
             return;
         }
 
         String oldName = faction.getName();
-        if (!plugin.getFactionManager().renameFaction(faction, newName)) {
+
+        if (!plugin.getFactionManager().renameFaction(
+                faction,
+                newName
+        )) {
             sendMessage(sender, "rename.failed");
             return;
         }
-        faction.broadcast(plugin.getMessageManager().get("rename.success",
-            "{player}", player.getName(), "{old}", oldName, "{new}", newName));
+
+        faction.broadcast(
+                plugin.getMessageManager().get(
+                        "rename.success",
+                        "{player}",
+                        player.getName(),
+                        "{old}",
+                        oldName,
+                        "{new}",
+                        newName
+                )
+        );
     }
 
     @Override public String getName() { return "rename"; }

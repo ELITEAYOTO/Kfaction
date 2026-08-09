@@ -1,0 +1,35 @@
+HISTORICAL FREEZE RECORD
+========================
+This file documents the former API 2.1.0 freeze from Lot24.
+Current public freeze: docs/API-FREEZE-2.2.0.txt
+
+KFACTION V2 API FREEZE
+
+Public API:
+me.krunsh.kfaction.api.v2.KfactionApiV2
+
+API_VERSION:
+2.1.0
+
+API_MAJOR:
+2
+
+Storage payload:
+9
+
+Frozen on:
+Lot 24
+
+Rules:
+- Do not remove/rename/change KfactionApiV2 methods.
+- Do not expose Faction/FPlayer live through API V2.
+- Do not expose managers/services through API V2.
+- Keep public View DTOs immutable.
+- Breaking API work goes to a new major interface.
+- Kgui V2 must consume this frozen boundary.
+
+Protected by:
+KfactionApiV2ContractTest
+ApiDtoContractTest
+IntegrationCompatibilityContractTest
+StorageSchemaContractTest

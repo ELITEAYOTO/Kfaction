@@ -85,9 +85,32 @@ public class ShowCommand extends SubCommand {
             "&6Chef: &f" + leaderName));
         
         // Membres
-        sender.sendMessage(ChatColor.translateAlternateColorCodes('&',
-            "&6Membres: &f" + faction.getMemberCount() + "/" + 
-            plugin.getConfigManager().getInt("factions.max-members", 15)));
+        int baseMemberLimit =
+                plugin.getConfigManager()
+                        .getInt(
+                                "factions.members.max-per-faction",
+                                50
+                        );
+
+        int effectiveMemberLimit =
+                Math.max(
+                        1,
+                        baseMemberLimit
+                                + Math.max(
+                                        0,
+                                        faction.getExtraMembers()
+                                )
+                );
+
+        sender.sendMessage(
+                ChatColor.translateAlternateColorCodes(
+                        '&',
+                        "&6Membres: &f"
+                                + faction.getMemberCount()
+                                + "/"
+                                + effectiveMemberLimit
+                )
+        );
         
         // Power
         double power = plugin.getPowerManager().getFactionPower(faction);

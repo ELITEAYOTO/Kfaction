@@ -1,43 +1,120 @@
 package me.krunsh.kfaction.hooks;
 
+import org.bukkit.Bukkit;
+
 import me.clip.placeholderapi.PlaceholderAPI;
 import me.krunsh.kfaction.Kfaction;
 import me.krunsh.kfaction.placeholders.KfactionExpansion;
 
 /**
- * Hook pour PlaceholderAPI
- * Délègue à KfactionExpansion pour les placeholders
+ * Lifecycle idempotent de l'expansion PlaceholderAPI.
  */
-public class PlaceholderAPIHook {
-    
+public final class PlaceholderAPIHook {
+
     private final Kfaction plugin;
+
     private KfactionExpansion expansion;
-    
-    public PlaceholderAPIHook(Kfaction plugin) {
+
+    private boolean registered;
+    private boolean ownedRegistration;
+    private boolean activationScheduled;
+
+    public PlaceholderAPIHook(
+            Kfaction plugin
+    ) {
         this.plugin = plugin;
     }
-    
-    /**
-     * Initialise l'expansion
-     */
+
     public void initialize() {
-        // Vérifier si une expansion kfaction est déjà enregistrée (évite le doublon)
-        if (PlaceholderAPI.isRegistered("kfaction")) {
-            plugin.getLogger().info("PlaceholderAPI: expansion kfaction déjà enregistrée");
+        if (registered
+                || activationScheduled) {
             return;
         }
-        
-        expansion = new KfactionExpansion(plugin);
-        expansion.register();
-        plugin.getLogger().info("PlaceholderAPI hook activé");
+
+        activationScheduled = true;
+
+        /*
+         * Kfaction historique possède encore un registerPlaceholders()
+         * plus tard dans onEnable. Le tick différé évite tout double
+         * enregistrement et garantit que l'API V2 est déjà disponible.
+         */
+        Bukkit.getScheduler()
+                .runTask(
+                        plugin,
+                        new Runnable() {
+                            @Override
+                            public void run() {
+                                activate();
+                            }
+                        }
+                );
     }
-    
-    /**
-     * Ferme l'expansion
-     */
-    public void shutdown() {
-        if (expansion != null) {
-            expansion.unregister();
+
+    private void activate() {
+        activationScheduled = false;
+
+        if (PlaceholderAPI.isRegistered(
+                "kfaction"
+        )) {
+            registered = true;
+            ownedRegistration = false;
+            expansion = null;
+
+            me.krunsh.kfaction.utils.KfactionLogger.debug(
+                    plugin,
+                    "PlaceholderAPI: expansion kfaction déjà enregistrée."
+            );
+
+            return;
         }
+
+        expansion =
+                new KfactionExpansion(
+                        plugin
+                );
+
+        ownedRegistration =
+                expansion.register();
+
+        registered =
+                ownedRegistration
+                        || PlaceholderAPI.isRegistered(
+                                "kfaction"
+                        );
+
+        if (!registered) {
+            expansion = null;
+
+            plugin.getLogger().warning(
+                    "PlaceholderAPI: échec d'enregistrement de l'expansion kfaction"
+            );
+        }
+    }
+
+    public void shutdown() {
+        activationScheduled = false;
+
+        if (ownedRegistration
+                && expansion != null) {
+            try {
+                expansion.unregister();
+            } finally {
+                ownedRegistration = false;
+                registered = false;
+                expansion = null;
+            }
+        }
+    }
+
+    public boolean isActivationScheduled() {
+        return activationScheduled;
+    }
+
+    public boolean isRegistered() {
+        return registered;
+    }
+
+    public boolean ownsRegistration() {
+        return ownedRegistration;
     }
 }

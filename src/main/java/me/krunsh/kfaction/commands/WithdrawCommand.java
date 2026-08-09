@@ -4,63 +4,154 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
 import me.krunsh.kfaction.Kfaction;
+import me.krunsh.kfaction.core.operation.OperationContext;
+import me.krunsh.kfaction.core.operation.OperationResult;
+import me.krunsh.kfaction.core.operation.OperationSource;
 import me.krunsh.kfaction.data.FPlayer;
 import me.krunsh.kfaction.data.Faction;
-import me.krunsh.kfaction.data.FactionLog.LogType;
-import me.krunsh.kfaction.data.PermissionAction;
+import me.krunsh.kfaction.economy.EconomyTransactionResult;
+import me.krunsh.kfaction.economy.MoneyAmount;
+import me.krunsh.kfaction.services.EconomyService;
 
 public class WithdrawCommand extends SubCommand {
-    public WithdrawCommand(Kfaction plugin) { super(plugin); }
-    
+
+    public WithdrawCommand(Kfaction plugin) {
+        super(plugin);
+    }
+
     @Override
-    public void execute(CommandSender sender, String[] args) {
+    public void execute(
+            CommandSender sender,
+            String[] args
+    ) {
         Player player = getPlayer(sender);
-        FPlayer fPlayer = plugin.getFPlayerManager().getFPlayer(player);
-        
-        if (!fPlayer.hasFaction()) {
-            sendMessage(sender, "withdraw.not-in-faction");
+
+        if (player == null) {
             return;
         }
-        
+
+        Faction faction =
+                resolveFaction(player);
+
+        if (faction == null) {
+            sendMessage(
+                    sender,
+                    "withdraw.not-in-faction"
+            );
+            return;
+        }
+
         if (args.length < 1) {
-            sendMessage(sender, "withdraw.usage");
+            sendMessage(
+                    sender,
+                    "withdraw.usage"
+            );
             return;
         }
-        
-        double amount;
-        try {
-            amount = Double.parseDouble(args[0]);
-            if (amount <= 0) {
-                sendMessage(sender, "withdraw.invalid-amount");
+
+        EconomyService service =
+                plugin.getEconomyManager()
+                        .getService();
+
+        OperationResult<MoneyAmount> parsed =
+                service.parseAmount(
+                        args[0]
+                );
+
+        if (!parsed.isSuccess()) {
+            sendMessage(
+                    sender,
+                    "withdraw.invalid-amount"
+            );
+            return;
+        }
+
+        OperationResult<EconomyTransactionResult> result =
+                service.withdrawFromFaction(
+                        player,
+                        faction,
+                        parsed.getValue(),
+                        context(player)
+                );
+
+        if (!result.isSuccess()) {
+            if (result.getStatus()
+                    == OperationResult.Status.FORBIDDEN
+                    && result.hasDetail()
+                    && result.getDetail()
+                            .contains(
+                                    "Banque faction"
+                            )) {
+                sendMessage(
+                        sender,
+                        "withdraw.not-enough-bank"
+                );
                 return;
             }
-        } catch (NumberFormatException e) {
-            sendMessage(sender, "withdraw.invalid-amount");
+
+            sendFailure(
+                    player,
+                    result
+            );
             return;
         }
-        
-        Faction faction = plugin.getFactionManager().getFaction(fPlayer.getFactionId());
-        if (faction == null) {
-            sendMessage(sender, "general.error");
-            return;
-        }
-        
-        if (!faction.hasPermission(player.getUniqueId(), PermissionAction.WITHDRAW)) {
-            sendMessage(sender, "general.no-permission");
-            return;
-        }
-        
-        if (faction.getBalance() < amount) {
-            sendMessage(sender, "withdraw.not-enough-bank");
-            return;
-        }
-        
-        faction.withdraw(amount);
-        plugin.getEconomyManager().deposit(player, amount);
-        plugin.getLogManager().log(faction.getId(), LogType.ECONOMY_WITHDRAW, player, null, String.valueOf(amount));
-        sendMessage(sender, "withdraw.success", "{amount}", String.valueOf(amount));
+
+        sendMessage(
+                sender,
+                "withdraw.success",
+                "{amount}",
+                service.format(
+                        result.getValue()
+                                .getAmount()
+                )
+        );
     }
-    
+
+    private Faction resolveFaction(
+            Player player
+    ) {
+        FPlayer fPlayer =
+                plugin.getFPlayerManager()
+                        .findLoaded(
+                                player.getUniqueId()
+                        );
+
+        if (fPlayer == null
+                || !fPlayer.hasFaction()) {
+            return null;
+        }
+
+        return plugin.getFactionManager()
+                .getFaction(
+                        fPlayer.getFactionId()
+                );
+    }
+
+    private static OperationContext context(
+            Player player
+    ) {
+        return OperationContext.actor(
+                player.getUniqueId(),
+                player.getName(),
+                OperationSource.COMMAND
+        );
+    }
+
+    private static void sendFailure(
+            Player player,
+            OperationResult<?> result
+    ) {
+        String reason =
+                result != null
+                        && result.hasDetail()
+                        ? result.getDetail()
+                        : "Retrait refusé";
+
+        player.sendMessage(
+                "§c✖ " + reason
+        );
+    }
+
     @Override public String getName() { return "withdraw"; }
     @Override public String getDescription() { return "Retirer de l'argent de la banque de faction"; }
     @Override public String getUsage() { return "<montant>"; }

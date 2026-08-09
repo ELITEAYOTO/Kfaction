@@ -69,7 +69,7 @@ public final class ProgressionConfigLoader {
         List<ValidationIssue> issues = new ArrayList<ValidationIssue>();
         if (file == null || !file.isFile()) {
             error(issues, "progression.yml",
-                    "fichier manquant. Copiez progression.example.yml puis validez-le.");
+                    "fichier manquant. La ressource progression.yml doit être présente dans le JAR ou copiée dans le dossier Kfaction.");
             return LoadResult.failure(issues);
         }
         try {

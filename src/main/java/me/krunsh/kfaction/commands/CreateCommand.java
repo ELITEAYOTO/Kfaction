@@ -8,109 +8,270 @@ import me.krunsh.kfaction.Kfaction;
 import me.krunsh.kfaction.api.event.FactionCreateEvent;
 import me.krunsh.kfaction.data.FPlayer;
 import me.krunsh.kfaction.data.Faction;
+import me.krunsh.kfaction.hooks.VaultHook;
 
 /**
- * Commande /f create <nom> - Créer une faction
+ * Commande /f create <nom> - Créer une faction.
+ *
+ * Lot25D:
+ * - clé canonique economy.faction-create-cost;
+ * - aucune création gratuite silencieuse si un coût > 0 est configuré mais
+ *   que Vault est indisponible;
+ * - vérification du retrait;
+ * - compensation si la création échoue après débit.
  */
 public class CreateCommand extends SubCommand {
-    
-    public CreateCommand(Kfaction plugin) {
+
+    public CreateCommand(
+            Kfaction plugin
+    ) {
         super(plugin);
     }
-    
+
     @Override
-    public void execute(CommandSender sender, String[] args) {
-        Player player = getPlayer(sender);
-        
-        // Vérifier les arguments
+    public void execute(
+            CommandSender sender,
+            String[] args
+    ) {
+        Player player =
+                getPlayer(sender);
+
+        if (player == null) {
+            return;
+        }
+
         if (args.length < 1) {
-            sendMessage(sender, "create.usage");
+            sendMessage(
+                    sender,
+                    "create.usage"
+            );
             return;
         }
-        
-        String name = args[0];
-        
-        // Vérifier si le joueur est déjà dans une faction
-        FPlayer fPlayer = plugin.getFPlayerManager().getFPlayer(player);
+
+        String name =
+                args[0];
+
+        FPlayer fPlayer =
+                plugin.getFPlayerManager()
+                        .findLoaded(
+                                player.getUniqueId()
+                        );
+
+        if (fPlayer == null) {
+            /*
+             * Un joueur en ligne doit normalement déjà être chargé par
+             * PlayerConnectionListener. Le fallback explicite reste main-thread.
+             */
+            fPlayer =
+                    plugin.getFPlayerManager()
+                            .getOrCreate(
+                                    player
+                            );
+        }
+
+        if (fPlayer == null) {
+            sendMessage(
+                    sender,
+                    "create.failed"
+            );
+            return;
+        }
+
         if (fPlayer.hasFaction()) {
-            sendMessage(sender, "create.already-in-faction");
+            sendMessage(
+                    sender,
+                    "create.already-in-faction"
+            );
             return;
         }
-        
-        // Vérifier la validité du nom
-        if (!plugin.getFactionManager().isValidName(name)) {
-            sendMessage(sender, "create.invalid-name");
+
+        if (!plugin.getFactionManager()
+                .isValidName(
+                        name
+                )) {
+            sendMessage(
+                    sender,
+                    "create.invalid-name"
+            );
             return;
         }
-        
-        // Vérifier la disponibilité du nom
-        if (!plugin.getFactionManager().isNameAvailable(name)) {
-            sendMessage(sender, "create.name-taken", "{name}", name);
+
+        if (!plugin.getFactionManager()
+                .isNameAvailable(
+                        name
+                )) {
+            sendMessage(
+                    sender,
+                    "create.name-taken",
+                    "{name}",
+                    name
+            );
             return;
         }
-        
-        // Vérifier le coût de création
-        double cost = plugin.getConfigManager().getDouble("economy.creation-cost", 0);
-        if (cost > 0 && plugin.getHookManager().hasVault()) {
-            if (!plugin.getHookManager().getVaultHook().has(player, cost)) {
-                sendMessage(sender, "create.not-enough-money",
-                    "{cost}", plugin.getHookManager().getVaultHook().format(cost));
+
+        double cost =
+                Math.max(
+                        0.0D,
+                        plugin.getConfigManager()
+                                .getDouble(
+                                        "economy.faction-create-cost",
+                                        0.0D
+                                )
+                );
+
+        VaultHook vault =
+                plugin.getHookManager() != null
+                && plugin.getHookManager()
+                        .hasVault()
+                        ? plugin.getHookManager()
+                                .getVaultHook()
+                        : null;
+
+        if (cost > 0.0D) {
+            if (vault == null
+                    || !vault.isEnabled()) {
+                sendMessage(
+                        sender,
+                        "create.economy-unavailable"
+                );
+                return;
+            }
+
+            if (!vault.has(
+                    player,
+                    cost
+            )) {
+                sendMessage(
+                        sender,
+                        "create.not-enough-money",
+                        "{cost}",
+                        vault.format(cost)
+                );
                 return;
             }
         }
-        
-        // Déclencher l'event AVANT la création (peut être annulé)
-        FactionCreateEvent event = new FactionCreateEvent(player, name);
-        Bukkit.getPluginManager().callEvent(event);
-        
+
+        FactionCreateEvent event =
+                new FactionCreateEvent(
+                        player,
+                        name
+                );
+
+        Bukkit.getPluginManager()
+                .callEvent(
+                        event
+                );
+
         if (event.isCancelled()) {
-            String reason = event.getCancelReason();
-            if (reason != null && !reason.isEmpty()) {
-                player.sendMessage(reason);
+            String reason =
+                    event.getCancelReason();
+
+            if (reason != null
+                    && !reason.isEmpty()) {
+                player.sendMessage(
+                        reason
+                );
             } else {
-                sendMessage(sender, "create.cancelled");
+                sendMessage(
+                        sender,
+                        "create.cancelled"
+                );
             }
+
             return;
         }
-        
-        // Prélever le coût après vérification de l'event
-        if (cost > 0 && plugin.getHookManager().hasVault()) {
-            plugin.getHookManager().getVaultHook().withdraw(player, cost);
+
+        boolean charged =
+                false;
+
+        if (cost > 0.0D) {
+            charged =
+                    vault.withdraw(
+                            player,
+                            cost
+                    );
+
+            if (!charged) {
+                sendMessage(
+                        sender,
+                        "create.transaction-failed"
+                );
+                return;
+            }
         }
-        
-        // Créer la faction
-        Faction faction = plugin.getFactionManager().createFaction(name, player.getUniqueId());
-        
-        // Mettre à jour l'event avec la faction créée
-        event.setFaction(faction);
-        
+
+        Faction faction =
+                plugin.getFactionManager()
+                        .createFaction(
+                                name,
+                                player.getUniqueId()
+                        );
+
         if (faction == null) {
-            sendMessage(sender, "create.failed");
+            if (charged
+                    && !vault.deposit(
+                            player,
+                            cost
+                    )) {
+                plugin.getLogger()
+                        .severe(
+                                "Impossible de rembourser "
+                                        + player.getName()
+                                        + " après échec /f create. Montant="
+                                        + cost
+                        );
+            }
+
+            sendMessage(
+                    sender,
+                    "create.failed"
+            );
             return;
         }
-        
-        // Succès
-        sendMessage(sender, "create.success", "{name}", name);
-        
-        // Broadcast si configuré
-        if (plugin.getConfigManager().getBoolean("broadcast.faction-create", true)) {
-            String broadcast = plugin.getMessageManager().get("create.broadcast",
-                "{player}", player.getName(),
-                "{faction}", name);
-            plugin.getServer().broadcastMessage(broadcast);
+
+        event.setFaction(
+                faction
+        );
+
+        sendMessage(
+                sender,
+                "create.success",
+                "{name}",
+                name
+        );
+
+        if (plugin.getConfigManager()
+                .getBoolean(
+                        "factions.create.broadcast",
+                        true
+                )) {
+            String broadcast =
+                    plugin.getMessageManager()
+                            .get(
+                                    "create.broadcast",
+                                    "{player}",
+                                    player.getName(),
+                                    "{faction}",
+                                    name
+                            );
+
+            plugin.getServer()
+                    .broadcastMessage(
+                            broadcast
+                    );
         }
     }
-    
+
     @Override
     public String getName() {
         return "create";
     }
-    
+
     @Override
     public String getDescription() {
         return "Créer une nouvelle faction";
     }
-    
+
     @Override
     public String getUsage() {
         return "<nom>";

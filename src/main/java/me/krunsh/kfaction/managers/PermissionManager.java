@@ -1,142 +1,304 @@
 package me.krunsh.kfaction.managers;
 
-import me.krunsh.kfaction.Kfaction;
-import me.krunsh.kfaction.data.Faction;
-import me.krunsh.kfaction.data.FactionRole;
-import me.krunsh.kfaction.data.FPlayer;
-import me.krunsh.kfaction.data.PermissionAction;
-import me.krunsh.kfaction.data.Relation;
+import java.util.UUID;
 
 import org.bukkit.entity.Player;
 
+import me.krunsh.kfaction.Kfaction;
+import me.krunsh.kfaction.data.FPlayer;
+import me.krunsh.kfaction.data.Faction;
+import me.krunsh.kfaction.data.FactionRole;
+import me.krunsh.kfaction.data.PermissionAction;
+import me.krunsh.kfaction.data.Relation;
+import me.krunsh.kfaction.permissions.FactionCapability;
+import me.krunsh.kfaction.permissions.PermissionDecision;
+import me.krunsh.kfaction.permissions.PermissionDefaults;
+import me.krunsh.kfaction.permissions.TerritoryAction;
+import me.krunsh.kfaction.services.GraceService;
+import me.krunsh.kfaction.services.PermissionService;
+
 /**
- * Gestionnaire des permissions de faction
- * Vérifie si un joueur peut effectuer une action
+ * Façade publique du Permission Engine V2.
  */
-public class PermissionManager {
-    
+public final class PermissionManager {
+
     private final Kfaction plugin;
-    
+    private final PermissionService service;
+    private final PermissionDefaults defaults;
+    private final GraceService graceService;
+
     public PermissionManager(Kfaction plugin) {
         this.plugin = plugin;
+        this.service =
+                new PermissionService(plugin);
+        this.defaults =
+                new PermissionDefaults(plugin);
+
+        this.graceService =
+                new GraceService(plugin);
     }
-    
-    /**
-     * Initialise le manager
-     */
+
     public void initialize() {
-        plugin.getLogger().info("PermissionManager initialisé");
+        graceService.initialize();
+        service.reload();
+        defaults.reload();
+
+        plugin.getLogger().info(
+                "PermissionManager V2 initialisé "
+                        + "(capabilities + territory + defaults + grace)"
+        );
     }
-    
-    /**
-     * Ferme le manager
-     */
+
+    public void reload() {
+        graceService.reload();
+        service.reload();
+        defaults.reload();
+    }
+
     public void shutdown() {
-        // Rien à faire
+        graceService.shutdown();
     }
-    
+
+    public PermissionService getService() {
+        return service;
+    }
+
+    public PermissionDefaults getDefaults() {
+        return defaults;
+    }
+
+    public GraceService getGraceService() {
+        return graceService;
+    }
+
+    // ============================================================
+    // API V2
+    // ============================================================
+
+    public boolean can(
+            Player player,
+            FactionCapability capability
+    ) {
+        return service.can(
+                player,
+                capability
+        );
+    }
+
+    public PermissionDecision check(
+            Player player,
+            FactionCapability capability
+    ) {
+        return service.checkCapability(
+                player,
+                capability
+        );
+    }
+
+    public PermissionDecision check(
+            Faction faction,
+            UUID memberId,
+            FactionCapability capability
+    ) {
+        return service.checkCapability(
+                faction,
+                memberId,
+                capability
+        );
+    }
+
+    public boolean canTerritory(
+            Player player,
+            org.bukkit.Location location,
+            TerritoryAction action
+    ) {
+        return service.canTerritory(
+                player,
+                location,
+                action
+        );
+    }
+
+    // ============================================================
+    // Defaults V2
+    // ============================================================
+
     /**
-     * Vérifie si un joueur peut effectuer une action dans sa faction
-     * @param player Le joueur
-     * @param action L'action à vérifier
-     * @return true si autorisé
+     * À appeler sur une faction fraîchement créée avant sa première save.
      */
-    public boolean canDo(Player player, PermissionAction action) {
-        FPlayer fPlayer = plugin.getFPlayerManager().getFPlayer(player);
-        if (fPlayer == null || !fPlayer.hasFaction()) {
+    public void applyDefaultsToNewFaction(
+            Faction faction
+    ) {
+        defaults.applyAll(faction);
+    }
+
+    public boolean resetRoleDefaults(
+            Faction faction,
+            FactionRole role
+    ) {
+        if (faction == null
+                || faction.isSystemFaction()
+                || role == null
+                || role == FactionRole.LEADER) {
             return false;
         }
-        
-        Faction faction = plugin.getFactionManager().getFaction(fPlayer.getFactionId());
+
+        defaults.resetRole(
+                faction,
+                role
+        );
+
+        plugin.getStorageManager()
+                .markDirty(faction);
+
+        return true;
+    }
+
+    public boolean resetRelationDefaults(
+            Faction faction,
+            Relation relation
+    ) {
+        if (faction == null
+                || faction.isSystemFaction()
+                || relation == null
+                || relation == Relation.MEMBER) {
+            return false;
+        }
+
+        defaults.resetRelation(
+                faction,
+                relation
+        );
+
+        plugin.getStorageManager()
+                .markDirty(faction);
+
+        return true;
+    }
+
+    public boolean resetAllDefaults(
+            Faction faction
+    ) {
+        if (faction == null
+                || faction.isSystemFaction()) {
+            return false;
+        }
+
+        defaults.applyAll(faction);
+
+        plugin.getStorageManager()
+                .markDirty(faction);
+
+        return true;
+    }
+
+    // ============================================================
+    // Compatibilité V1
+    // ============================================================
+
+    public boolean canDo(
+            Player player,
+            PermissionAction action
+    ) {
+        if (player == null || action == null) {
+            return false;
+        }
+
+        FactionCapability capability =
+                FactionCapability.fromLegacy(action);
+
+        if (capability != null) {
+            return can(
+                    player,
+                    capability
+            );
+        }
+
+        FPlayer fPlayer =
+                plugin.getFPlayerManager()
+                        .findLoaded(
+                                player.getUniqueId()
+                        );
+
+        if (fPlayer == null
+                || !fPlayer.hasFaction()) {
+            return false;
+        }
+
+        Faction faction =
+                plugin.getFactionManager()
+                        .getFaction(
+                                fPlayer.getFactionId()
+                        );
+
         if (faction == null) {
             return false;
         }
-        
-        return canDo(faction, fPlayer.getRole(), action);
+
+        FactionRole role =
+                faction.getRole(
+                        player.getUniqueId()
+                );
+
+        return canDo(
+                faction,
+                role,
+                action
+        );
     }
-    
-    /**
-     * Vérifie si un rôle peut effectuer une action dans une faction
-     * @param faction La faction
-     * @param role Le rôle du membre
-     * @param action L'action à vérifier
-     * @return true si autorisé
-     */
-    public boolean canDo(Faction faction, FactionRole role, PermissionAction action) {
-        if (faction == null || role == null || action == null) {
+
+    public boolean canDo(
+            Faction faction,
+            FactionRole role,
+            PermissionAction action
+    ) {
+        if (faction == null
+                || role == null
+                || action == null) {
             return false;
         }
-        
-        // Leader peut tout faire
-        if (role == FactionRole.LEADER) {
-            return true;
-        }
-        
-        // Vérifier les permissions de la faction
-        return faction.hasPermission(role, action);
+
+        return faction.hasPermission(
+                role,
+                action
+        );
     }
-    
-    /**
-     * Vérifie si une relation peut effectuer une action territoriale
-     * @param faction La faction propriétaire
-     * @param relation La relation avec le joueur
-     * @param action L'action à vérifier
-     * @return true si autorisé
-     */
-    public boolean canDoRelation(Faction faction, Relation relation, PermissionAction action) {
-        if (faction == null || action == null) {
+
+    public boolean canDoRelation(
+            Faction faction,
+            Relation relation,
+            PermissionAction action
+    ) {
+        if (faction == null
+                || relation == null
+                || action == null) {
             return false;
         }
-        
-        // Vérifier les permissions de relation
-        return faction.hasPermission(relation, action);
+
+        return faction.hasPermission(
+                relation,
+                action
+        );
     }
-    
-    /**
-     * Vérifie si un joueur peut effectuer une action sur le territoire d'une autre faction
-     * @param player Le joueur
-     * @param targetFaction La faction propriétaire du territoire
-     * @param action L'action à vérifier
-     * @return true si autorisé
-     */
-    public boolean canDoAt(Player player, Faction targetFaction, PermissionAction action) {
-        // Admin bypass
-        FPlayer fPlayer = plugin.getFPlayerManager().getFPlayer(player);
-        if (fPlayer != null && fPlayer.isBypassing()) {
-            return true;
-        }
-        
-        // Wilderness = tout le monde peut
-        if (targetFaction == null || targetFaction.isWilderness()) {
-            return true;
-        }
-        
-        // Safezone = personne ne peut (sauf build par admin)
-        if (targetFaction.isSafezone()) {
+
+    public boolean canDoAt(
+            Player player,
+            Faction targetFaction,
+            PermissionAction action
+    ) {
+        TerritoryAction territoryAction =
+                TerritoryAction.fromLegacy(
+                        action
+                );
+
+        if (territoryAction == null) {
             return false;
         }
-        
-        // Warzone = dépend de l'action
-        if (targetFaction.isWarzone()) {
-            // TODO: Configurable
-            return false;
-        }
-        
-        // Vérifier si membre de la faction
-        if (fPlayer != null && fPlayer.hasFaction()) {
-            Faction playerFaction = plugin.getFactionManager().getFaction(fPlayer.getFactionId());
-            
-            if (playerFaction != null && playerFaction.getId().equals(targetFaction.getId())) {
-                // Membre de la faction - vérifier les permissions de rôle
-                return canDo(targetFaction, fPlayer.getRole(), action);
-            }
-            
-            // Vérifier les permissions de relation
-            Relation relation = targetFaction.getRelationTo(playerFaction);
-            return canDoRelation(targetFaction, relation, action);
-        }
-        
-        // Joueur sans faction = relation neutre
-        return canDoRelation(targetFaction, Relation.NEUTRAL, action);
+
+        return service.checkTerritory(
+                player,
+                targetFaction,
+                territoryAction
+        ).isAllowed();
     }
 }

@@ -1,0 +1,37 @@
+KFACTION PUBLIC API FREEZE
+==========================
+
+VERSION
+=======
+API_VERSION: 2.2.0
+API_MAJOR:   2
+
+STATUS
+======
+Feature complete / frozen candidate after Lot25D.
+Final GO requires the user's real:
+
+mvn clean package
+
+plus the runtime smoke checklist.
+
+PUBLIC CONTRACT
+===============
+- Read methods expose immutable snapshots.
+- No live Faction/FPlayer/Manager/Service objects in KfactionApiV2 signatures.
+- Trusted mutations are Bukkit-main-thread only.
+- ApiResult is the mutation result envelope.
+- ApiResult.failure rejects SUCCESS and NO_CHANGE.
+- Dynamic Global Zones are additive in API 2.2.
+- Legacy GlobalZoneType SAFEZONE/WARZONE overloads remain available.
+- Progression API reads use read-only peek paths and do not reconcile/mutate.
+
+STORAGE
+=======
+StorageSnapshot.CURRENT_SCHEMA_VERSION = 9
+Global Zones payload schema = 2
+
+BREAKING CHANGE RULE
+====================
+Any future incompatible public API change must use a new major API
+(e.g. KfactionApiV3) instead of silently mutating the 2.x contract.

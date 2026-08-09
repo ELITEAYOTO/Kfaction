@@ -53,8 +53,17 @@ public class FactionChatListener implements Listener {
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void onPlayerChat(AsyncPlayerChatEvent event) {
         Player player = event.getPlayer();
-        FPlayer fPlayer = plugin.getFPlayerManager().getFPlayer(player);
+        FPlayer fPlayer =
+                plugin.getFPlayerManager()
+                        .findLoaded(
+                                player.getUniqueId()
+                        );
         
+        // Async chat: cache-only, aucune création/lecture disque hors main thread.
+        if (fPlayer == null) {
+            return;
+        }
+
         // Si pas dans une faction ou mode PUBLIC, laisser passer à Kchat
         if (!fPlayer.hasFaction() || fPlayer.getChatMode() == ChatMode.PUBLIC) {
             return;

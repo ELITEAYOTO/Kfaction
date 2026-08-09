@@ -1,102 +1,117 @@
 package me.krunsh.kfaction.storage;
 
+import java.util.Collection;
 import java.util.function.Consumer;
 
 import me.krunsh.kfaction.data.FPlayer;
 import me.krunsh.kfaction.data.Faction;
 
 /**
- * Interface de stockage abstrait
- * Permet d'implémenter différents backends (FlatFile, MySQL, etc.)
+ * Backend de persistance Kfaction.
+ *
+ * V2 :
+ * - lecture -> reconstruit le domaine ;
+ * - écriture -> reçoit exclusivement des StorageSnapshot immuables ;
+ * - writeSnapshots permet aux backends transactionnels (SQLite) de persister
+ *   un batch complet en une seule transaction.
  */
 public interface Storage {
-    
-    /**
-     * Initialise le stockage (connexions, création de fichiers/tables, etc.)
-     */
+
     void initialize();
-    
-    /**
-     * Ferme le stockage proprement
-     */
+
     void shutdown();
-    
-    // === Factions ===
-    
-    /**
-     * Charge toutes les factions et les passe au consumer
-     * @param consumer Consumer qui reçoit chaque faction chargée
-     */
+
+    // ============================================================
+    // Lecture domaine
+    // ============================================================
+
     void loadFactions(Consumer<Faction> consumer);
-    
-    /**
-     * Charge une faction spécifique
-     * @param factionId ID de la faction
-     * @return La faction ou null si non trouvée
-     */
+
     Faction loadFaction(String factionId);
-    
+
+    void loadFPlayers(Consumer<FPlayer> consumer);
+
+    FPlayer loadFPlayer(String uuid);
+
     /**
-     * Sauvegarde une faction
-     * @param faction La faction à sauvegarder
+     * Payload singleton du moteur Global Zones V2.
+     * null = aucune zone persistée.
      */
+    String loadGlobalZonesPayload();
+
+    /**
+     * Payload singleton de la Grace Period V2.
+     * null = aucun état persisté.
+     */
+    String loadGraceStatePayload();
+
+    // ============================================================
+    // Écriture V2 immuable
+    // ============================================================
+
+    /**
+     * Écrit durablement un snapshot déjà sérialisé.
+     */
+    boolean writeSnapshot(StorageSnapshot snapshot);
+
+    /**
+     * Écrit un batch de snapshots.
+     *
+     * Le backend FlatFile utilise par défaut plusieurs écritures atomiques.
+     * SQLite surcharge cette méthode afin de faire une transaction unique.
+     */
+    default boolean writeSnapshots(
+            Collection<StorageSnapshot> snapshots
+    ) {
+        if (snapshots == null || snapshots.isEmpty()) {
+            return true;
+        }
+
+        boolean success = true;
+
+        for (StorageSnapshot snapshot : snapshots) {
+            if (snapshot == null) {
+                continue;
+            }
+
+            if (!writeSnapshot(snapshot)) {
+                success = false;
+            }
+        }
+
+        return success;
+    }
+
+    // ============================================================
+    // Compatibilité V1
+    // ============================================================
+
+    /**
+     * @deprecated préférer StorageManager + StorageSnapshot.
+     */
+    @Deprecated
     void saveFaction(Faction faction);
 
     /**
-     * Sauvegarde une faction et confirme que la nouvelle version est durable.
-     *
-     * Les anciens backends restent compatibles, mais un backend utilisé par une
-     * transition transactionnelle doit surcharger cette méthode et ne retourner
-     * true qu'après le remplacement durable de l'enregistrement.
+     * @deprecated préférer StorageManager.saveFactionNow.
      */
+    @Deprecated
     default boolean saveFactionChecked(Faction faction) {
         saveFaction(faction);
         return true;
     }
-    
-    /**
-     * Supprime une faction
-     * @param factionId ID de la faction
-     */
+
     void deleteFaction(String factionId);
-    
-    // === FPlayers ===
-    
+
     /**
-     * Charge tous les FPlayers et les passe au consumer
-     * @param consumer Consumer qui reçoit chaque FPlayer chargé
+     * @deprecated préférer StorageManager + StorageSnapshot.
      */
-    void loadFPlayers(Consumer<FPlayer> consumer);
-    
-    /**
-     * Charge un FPlayer spécifique
-     * @param uuid UUID du joueur (en string)
-     * @return Le FPlayer ou null si non trouvé
-     */
-    FPlayer loadFPlayer(String uuid);
-    
-    /**
-     * Sauvegarde un FPlayer
-     * @param fPlayer Le FPlayer à sauvegarder
-     */
+    @Deprecated
     void saveFPlayer(FPlayer fPlayer);
-    
-    /**
-     * Supprime un FPlayer
-     * @param uuid UUID du joueur (en string)
-     */
+
     void deleteFPlayer(String uuid);
-    
-    // === Utilitaires ===
-    
-    /**
-     * @return Le nom du type de stockage
-     */
+
     String getType();
-    
-    /**
-     * Vérifie si le stockage est fonctionnel
-     * @return true si opérationnel
-     */
+
     boolean isConnected();
 }

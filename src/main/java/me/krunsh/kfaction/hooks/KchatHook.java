@@ -1,168 +1,535 @@
 package me.krunsh.kfaction.hooks;
 
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.Locale;
 
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 
 import me.krunsh.kfaction.Kfaction;
-import me.krunsh.kfaction.data.FPlayer;
-import me.krunsh.kfaction.data.Faction;
-import me.krunsh.kfaction.data.Relation;
+import me.krunsh.kfaction.api.v2.FactionView;
+import me.krunsh.kfaction.api.v2.KfactionApiV2;
+import me.krunsh.kfaction.api.v2.KfactionApis;
+import me.krunsh.kfaction.api.v2.PlayerView;
 
 /**
- * Hook pour Kchat (système de chat)
- * Fournit les tags de faction et gère les nametags
+ * Hook Kchat V2.
+ *
+ * Les lectures faction/joueur passent exclusivement par KfactionApiV2.
+ * La reflection est limitée à l'API externe de Kchat.
  */
-public class KchatHook {
-    
+public final class KchatHook {
+
     private final Kfaction plugin;
-    
-    // Références pour reflection vers Kchat
+
     private Plugin kchatPlugin;
     private Object nametagManager;
+
     private Method updateNametagMethod;
     private Method refreshAllNametagsMethod;
-    private boolean initialized = false;
-    
-    public KchatHook(Kfaction plugin) {
+
+    private boolean initialized;
+
+    private volatile KfactionApiV2 cachedApi;
+
+    public KchatHook(
+            Kfaction plugin
+    ) {
         this.plugin = plugin;
     }
-    
-    /**
-     * Initialise le hook
-     */
+
     public void initialize() {
+        initialized = false;
+
         try {
-            kchatPlugin = Bukkit.getPluginManager().getPlugin("Kchat");
-            if (kchatPlugin == null || !kchatPlugin.isEnabled()) {
-                plugin.getLogger().warning("Kchat non trouvé - hook désactivé");
+            kchatPlugin =
+                    Bukkit.getPluginManager()
+                            .getPlugin("Kchat");
+
+            if (kchatPlugin == null
+                    || !kchatPlugin.isEnabled()) {
                 return;
             }
-            
-            // Obtenir le NametagManager via reflection
-            Method getNametagManagerMethod = kchatPlugin.getClass().getMethod("getNametagManager");
-            nametagManager = getNametagManagerMethod.invoke(kchatPlugin);
-            
-            if (nametagManager != null) {
-                // Cache les méthodes pour performance
-                updateNametagMethod = nametagManager.getClass().getMethod("updateNametag", Player.class);
-                refreshAllNametagsMethod = nametagManager.getClass().getMethod("refreshAllNametags");
-                
-                initialized = true;
-                plugin.getLogger().info("Kchat hook initialisé avec succès");
+
+            Method getter =
+                    findAccessibleMethod(
+                            kchatPlugin.getClass(),
+                            "getNametagManager"
+                    );
+
+            if (getter == null) {
+                throw new NoSuchMethodException(
+                        "Kchat#getNametagManager"
+                );
             }
-        } catch (Exception e) {
-            plugin.getLogger().warning("Erreur lors de l'initialisation du hook Kchat: " + e.getMessage());
+
+            nametagManager =
+                    invoke(
+                            getter,
+                            kchatPlugin
+                    );
+
+            if (nametagManager == null) {
+                return;
+            }
+
+            /*
+             * updateNametag(Player) est la seule méthode réellement requise
+             * pour déclarer l'intégration Kchat opérationnelle.
+             *
+             * On ne dépend plus de la visibilité de la classe concrète:
+             * findAccessibleMethod() sait traverser interfaces/superclasses
+             * et rend le Method accessible sous Java 8.
+             */
+            updateNametagMethod =
+                    findAccessibleMethod(
+                            nametagManager.getClass(),
+                            "updateNametag",
+                            Player.class
+                    );
+
+            if (updateNametagMethod == null) {
+                throw new NoSuchMethodException(
+                        "NametagManager#updateNametag(Player)"
+                );
+            }
+
+            /*
+             * Méthode OPTIONNELLE:
+             * certaines versions Kchat ne possèdent pas
+             * refreshAllNametags().
+             *
+             * Dans ce cas updateAllNametags() fera simplement un fallback
+             * joueur par joueur avec updateNametag(Player).
+             */
+            refreshAllNametagsMethod =
+                    findAccessibleMethod(
+                            nametagManager.getClass(),
+                            "refreshAllNametags"
+                    );
+
+            initialized = true;
+
+        } catch (Throwable throwable) {
             initialized = false;
+
+            plugin.getLogger().warning(
+                    "Kchat hook incompatible: "
+                            + throwable.getMessage()
+            );
         }
     }
-    
-    /**
-     * Vérifie si le hook est initialisé
-     */
+
     public boolean isInitialized() {
         return initialized;
     }
-    
-    /**
-     * Met à jour le nametag d'un joueur spécifique
-     * @param player Le joueur dont le nametag doit être mis à jour
-     */
-    public void updatePlayerNametag(Player player) {
-        if (!initialized || updateNametagMethod == null || player == null) return;
-        
+
+    public void updatePlayerNametag(
+            Player player
+    ) {
+        if (!initialized
+                || updateNametagMethod == null
+                || player == null) {
+            return;
+        }
+
         try {
-            updateNametagMethod.invoke(nametagManager, player);
-        } catch (Exception e) {
-            if (plugin.isDebugMode()) {
-                plugin.getLogger().warning("[Debug] Erreur updatePlayerNametag: " + e.getMessage());
-            }
+            invoke(
+                    updateNametagMethod,
+                    nametagManager,
+                    player
+            );
+
+        } catch (Throwable throwable) {
+            debug(
+                    "updatePlayerNametag",
+                    throwable
+            );
         }
     }
-    
-    /**
-     * Met à jour les nametags de tous les joueurs en ligne
-     * Utile après un changement de relation entre factions
-     */
+
     public void updateAllNametags() {
-        if (!initialized || refreshAllNametagsMethod == null) return;
-        
-        try {
-            refreshAllNametagsMethod.invoke(nametagManager);
-        } catch (Exception e) {
-            if (plugin.isDebugMode()) {
-                plugin.getLogger().warning("[Debug] Erreur updateAllNametags: " + e.getMessage());
+        if (!initialized) {
+            return;
+        }
+
+        /*
+         * Chemin natif si la version de Kchat expose
+         * refreshAllNametags().
+         */
+        if (refreshAllNametagsMethod != null) {
+            try {
+                invoke(
+                        refreshAllNametagsMethod,
+                        nametagManager
+                );
+
+                return;
+
+            } catch (Throwable throwable) {
+                debug(
+                        "refreshAllNametags",
+                        throwable
+                );
             }
         }
-    }
-    
-    /**
-     * Obtient le tag de faction d'un joueur
-     * @param player Le joueur
-     * @return Le tag ou chaîne vide
-     */
-    public String getFactionTag(Player player) {
-        Faction faction = plugin.getFactionManager().getPlayerFaction(player);
-        if (faction == null) return "";
-        return faction.getTag();
-    }
-    
-    /**
-     * Obtient le nom de faction d'un joueur
-     * @param player Le joueur
-     * @return Le nom ou chaîne vide
-     */
-    public String getFactionName(Player player) {
-        Faction faction = plugin.getFactionManager().getPlayerFaction(player);
-        if (faction == null) return "";
-        return faction.getName();
-    }
-    
-    /**
-     * Obtient le préfixe de rôle d'un joueur
-     * @param player Le joueur
-     * @return Le préfixe de rôle
-     */
-    public String getRolePrefix(Player player) {
-        FPlayer fPlayer = plugin.getFPlayerManager().getFPlayer(player);
-        if (fPlayer == null || fPlayer.getRole() == null) return "";
-        return fPlayer.getRole().getPrefix();
-    }
-    
-    /**
-     * Obtient le tag coloré selon la relation avec un autre joueur
-     * @param player Le joueur dont on veut le tag
-     * @param viewer Le joueur qui regarde
-     * @return Le tag avec la couleur de relation
-     */
-    public String getColoredTag(Player player, Player viewer) {
-        Faction playerFaction = plugin.getFactionManager().getPlayerFaction(player);
-        if (playerFaction == null) return "";
-        
-        Faction viewerFaction = plugin.getFactionManager().getPlayerFaction(viewer);
-        if (viewerFaction == null) {
-            return "&f" + playerFaction.getTag();
+
+        /*
+         * Fallback compatible anciennes/nouvelles variantes Kchat:
+         * on rafraîchit seulement les joueurs actuellement connectés.
+         */
+        for (Player player
+                : Bukkit.getOnlinePlayers()) {
+            updatePlayerNametag(player);
         }
-        
-        Relation relation = viewerFaction.getRelationTo(playerFaction);
-        return relation.getColorPrefix() + playerFaction.getTag();
     }
-    
+
+    public String getFactionTag(
+            Player player
+    ) {
+        FactionView faction =
+                factionOf(player);
+
+        return faction != null
+                && faction.getTag() != null
+                ? faction.getTag()
+                : "";
+    }
+
+    public String getFactionName(
+            Player player
+    ) {
+        FactionView faction =
+                factionOf(player);
+
+        return faction != null
+                && faction.getName() != null
+                ? faction.getName()
+                : "";
+    }
+
+    public String getRolePrefix(
+            Player player
+    ) {
+        PlayerView view =
+                playerView(player);
+
+        return view != null
+                && view.getRolePrefix() != null
+                ? view.getRolePrefix()
+                : "";
+    }
+
+    public String getColoredTag(
+            Player player,
+            Player viewer
+    ) {
+        KfactionApiV2 api =
+                api();
+
+        if (api == null
+                || player == null) {
+            return "";
+        }
+
+        FactionView target =
+                api.getPlayerFaction(
+                        player.getUniqueId()
+                );
+
+        if (target == null) {
+            return "";
+        }
+
+        FactionView observer =
+                viewer != null
+                        ? api.getPlayerFaction(
+                                viewer.getUniqueId()
+                        )
+                        : null;
+
+        if (observer == null) {
+            return "&f"
+                    + safe(target.getTag());
+        }
+
+        String relation =
+                api.getRelation(
+                        observer.getId(),
+                        target.getId()
+                );
+
+        return relationColor(relation)
+                + safe(target.getTag());
+    }
+
+    public String formatChat(
+            Player player,
+            String format
+    ) {
+        if (format == null) {
+            return null;
+        }
+
+        return format
+                .replace(
+                        "{faction}",
+                        getFactionTag(player)
+                )
+                .replace(
+                        "{faction_role}",
+                        getRolePrefix(player)
+                );
+    }
+
+    private FactionView factionOf(
+            Player player
+    ) {
+        KfactionApiV2 api =
+                api();
+
+        return api != null
+                && player != null
+                ? api.getPlayerFaction(
+                        player.getUniqueId()
+                )
+                : null;
+    }
+
+    private PlayerView playerView(
+            Player player
+    ) {
+        KfactionApiV2 api =
+                api();
+
+        return api != null
+                && player != null
+                ? api.getPlayer(
+                        player.getUniqueId()
+                )
+                : null;
+    }
+
+    private KfactionApiV2 api() {
+        KfactionApiV2 current = cachedApi;
+
+        if (current == null) {
+            current = KfactionApis.get();
+
+            if (current != null) {
+                cachedApi = current;
+            }
+        }
+
+        return current;
+    }
+
     /**
-     * Obtient le format de chat pour un joueur
-     * @param player Le joueur
-     * @param format Le format original
-     * @return Le format modifié avec les infos de faction
+     * Cherche une méthode publique ou déclarée sans dépendre de la visibilité
+     * de la classe d'implémentation.
+     *
+     * C'est important avec les bridges de plugins: une méthode peut être
+     * publique alors que la classe concrète/proxy qui la porte ne l'est pas.
      */
-    public String formatChat(Player player, String format) {
-        String factionTag = getFactionTag(player);
-        String rolePfx = getRolePrefix(player);
-        
-        format = format.replace("{faction}", factionTag);
-        format = format.replace("{faction_role}", rolePfx);
-        
-        return format;
+    private static Method findAccessibleMethod(
+            Class<?> type,
+            String name,
+            Class<?>... parameterTypes
+    ) {
+        if (type == null
+                || name == null) {
+            return null;
+        }
+
+        /*
+         * 1) API publique normale.
+         */
+        try {
+            Method method =
+                    type.getMethod(
+                            name,
+                            parameterTypes
+                    );
+
+            makeAccessible(method);
+            return method;
+
+        } catch (NoSuchMethodException ignored) {
+            // Fallbacks ci-dessous.
+        }
+
+        /*
+         * 2) Interfaces publiques/privées implémentées.
+         */
+        Method interfaceMethod =
+                findOnInterfaces(
+                        type,
+                        name,
+                        parameterTypes
+                );
+
+        if (interfaceMethod != null) {
+            return interfaceMethod;
+        }
+
+        /*
+         * 3) Classe concrète + superclasses.
+         */
+        Class<?> current = type;
+
+        while (current != null) {
+            try {
+                Method method =
+                        current.getDeclaredMethod(
+                                name,
+                                parameterTypes
+                        );
+
+                makeAccessible(method);
+                return method;
+
+            } catch (NoSuchMethodException ignored) {
+                current =
+                        current.getSuperclass();
+            }
+        }
+
+        return null;
+    }
+
+    private static Method findOnInterfaces(
+            Class<?> type,
+            String name,
+            Class<?>... parameterTypes
+    ) {
+        if (type == null) {
+            return null;
+        }
+
+        for (Class<?> interfaceType
+                : type.getInterfaces()) {
+            try {
+                Method method =
+                        interfaceType.getMethod(
+                                name,
+                                parameterTypes
+                        );
+
+                makeAccessible(method);
+                return method;
+
+            } catch (NoSuchMethodException ignored) {
+                Method nested =
+                        findOnInterfaces(
+                                interfaceType,
+                                name,
+                                parameterTypes
+                        );
+
+                if (nested != null) {
+                    return nested;
+                }
+            }
+        }
+
+        return findOnInterfaces(
+                type.getSuperclass(),
+                name,
+                parameterTypes
+        );
+    }
+
+    private static void makeAccessible(
+            Method method
+    ) {
+        if (method == null) {
+            return;
+        }
+
+        try {
+            if (!method.isAccessible()) {
+                method.setAccessible(true);
+            }
+        } catch (SecurityException ignored) {
+            /*
+             * Si un SecurityManager interdit setAccessible, on conserve le
+             * Method. invoke() réussira quand même si la déclaration publique
+             * est naturellement accessible.
+             */
+        }
+    }
+
+    private static Object invoke(
+            Method method,
+            Object target,
+            Object... arguments
+    ) throws Throwable {
+        try {
+            return method.invoke(
+                    target,
+                    arguments
+            );
+
+        } catch (InvocationTargetException exception) {
+            Throwable cause =
+                    exception.getCause();
+
+            throw cause != null
+                    ? cause
+                    : exception;
+        }
+    }
+
+    private static String relationColor(
+            String relation
+    ) {
+        String value =
+                relation != null
+                        ? relation.toUpperCase(
+                                Locale.ROOT
+                        )
+                        : "NEUTRAL";
+
+        if ("MEMBER".equals(value)) {
+            return "&2";
+        }
+
+        if ("ALLY".equals(value)) {
+            return "&d";
+        }
+
+        if ("TRUCE".equals(value)) {
+            return "&e";
+        }
+
+        if ("ENEMY".equals(value)) {
+            return "&c";
+        }
+
+        return "&f";
+    }
+
+    private static String safe(
+            String value
+    ) {
+        return value != null
+                ? value
+                : "";
+    }
+
+    private void debug(
+            String operation,
+            Throwable throwable
+    ) {
+        if (plugin.isDebugMode()) {
+            plugin.getLogger().warning(
+                    "[Debug] Kchat "
+                            + operation
+                            + ": "
+                            + throwable.getMessage()
+            );
+        }
     }
 }

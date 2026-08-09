@@ -23,518 +23,1151 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
 import me.krunsh.kfaction.Kfaction;
+import me.krunsh.kfaction.audit.AuditCategory;
+import me.krunsh.kfaction.audit.AuditOutcome;
+import me.krunsh.kfaction.audit.AuditService;
+import me.krunsh.kfaction.core.operation.OperationContext;
 import me.krunsh.kfaction.data.FactionLog;
 import me.krunsh.kfaction.data.FactionLog.LogType;
 
 /**
- * Gestionnaire des logs de faction — optimisé pour 1000+ joueurs
- * 
- * Optimisations clés:
- * - Écriture par batch (dirty-set + flush périodique) au lieu d'un write par log
- * - Listes synchronisées pour thread-safety
- * - Gson compact (pas de PrettyPrinting)
- * - Plafond d'entrées par faction (évite la croissance mémoire infinie)
- * - Cleanup uniquement sur le cache en mémoire (pas de chargement de fichiers non-cachés)
- * - Filtrage par boucle simple au lieu de streams (moins d'allocations)
+ * Façade de logs V2.
+ *
+ * 1. Garde le cache/fichier JSON legacy pour /f logs et Kgui.
+ * 2. Dual-write chaque FactionLog dans audit.db via AuditService.
+ * 3. Expose l'API structurée d'audit pour les opérations globales.
  */
 public class LogManager {
-    
+
+    private static final long DEFAULT_FLUSH_INTERVAL_TICKS =
+            20L * 10L;
+
+    private static final Set<LogType> CAT_MEMBRES =
+            EnumSet.of(
+                    LogType.MEMBER_JOIN,
+                    LogType.MEMBER_LEAVE,
+                    LogType.MEMBER_KICK,
+                    LogType.MEMBER_PROMOTE,
+                    LogType.MEMBER_DEMOTE
+            );
+
+    private static final Set<LogType> CAT_TERRITOIRE =
+            EnumSet.of(
+                    LogType.TERRITORY_CLAIM,
+                    LogType.TERRITORY_UNCLAIM,
+                    LogType.TERRITORY_SETHOME,
+                    LogType.TERRITORY_SETWARP,
+                    LogType.TERRITORY_DELWARP,
+                    LogType.CLAIM_GROUP_CHANGE
+            );
+
+    private static final Set<LogType> CAT_ECONOMIE =
+            EnumSet.of(
+                    LogType.ECONOMY_DEPOSIT,
+                    LogType.ECONOMY_WITHDRAW
+            );
+
+    private static final Set<LogType> CAT_TP =
+            EnumSet.of(
+                    LogType.TP_HOME,
+                    LogType.TP_WARP,
+                    LogType.TP_INVITE
+            );
+
+    private static final Set<LogType> CAT_COFFRE =
+            EnumSet.of(
+                    LogType.CHEST_DEPOSIT,
+                    LogType.CHEST_WITHDRAW
+            );
+
+    private static final Set<LogType> CAT_ALL =
+            EnumSet.allOf(
+                    LogType.class
+            );
+
     private final Kfaction plugin;
     private final Gson gson;
-    
-    // Cache des logs par faction (listes synchronisées)
-    private final Map<String, List<FactionLog>> logCache;
-    
-    // Dirty tracking: factions qui ont des logs non sauvegardés
+
+    private final Map<String, List<FactionLog>>
+            logCache;
+
     private final Set<String> dirtyFactions;
-    
-    // Dossier de stockage
+
+    private final AuditService auditService;
+
     private File logsFolder;
-    
-    // Configuration (cachée pour perf)
+
     private long retentionHours;
     private int maxLogsPerFaction;
-    
-    // Tâches planifiées
+
     private BukkitTask flushTask;
     private BukkitTask cleanupTask;
-    
-    // Intervalle de flush en ticks (10 secondes par défaut)
-    private static final long DEFAULT_FLUSH_INTERVAL_TICKS = 20L * 10;
-    
-    // Catégories pré-calculées (évite la re-création à chaque appel)
-    private static final Set<LogType> CAT_MEMBRES = EnumSet.of(
-        LogType.MEMBER_JOIN, LogType.MEMBER_LEAVE, 
-        LogType.MEMBER_KICK, LogType.MEMBER_PROMOTE, LogType.MEMBER_DEMOTE);
-    private static final Set<LogType> CAT_TERRITOIRE = EnumSet.of(
-        LogType.TERRITORY_CLAIM, LogType.TERRITORY_UNCLAIM,
-        LogType.TERRITORY_SETHOME, LogType.TERRITORY_SETWARP, LogType.TERRITORY_DELWARP);
-    private static final Set<LogType> CAT_ECONOMIE = EnumSet.of(
-        LogType.ECONOMY_DEPOSIT, LogType.ECONOMY_WITHDRAW);
-    private static final Set<LogType> CAT_TP = EnumSet.of(
-        LogType.TP_HOME, LogType.TP_WARP, LogType.TP_INVITE);
-    private static final Set<LogType> CAT_COFFRE = EnumSet.of(
-        LogType.CHEST_DEPOSIT, LogType.CHEST_WITHDRAW);
-    private static final Set<LogType> CAT_ALL = EnumSet.allOf(LogType.class);
-    
+
     public LogManager(Kfaction plugin) {
-        this.plugin = plugin;
-        // Compact JSON — pas de PrettyPrinting (économise CPU + disque)
-        this.gson = new Gson();
-        this.logCache = new ConcurrentHashMap<>();
-        this.dirtyFactions = ConcurrentHashMap.newKeySet();
-    }
-    
-    /**
-     * Initialise le gestionnaire de logs
-     */
-    public void initialize() {
-        // Créer le dossier logs
-        logsFolder = new File(plugin.getDataFolder(), "logs");
-        if (!logsFolder.exists()) {
-            logsFolder.mkdirs();
+        if (plugin == null) {
+            throw new IllegalArgumentException(
+                    "plugin cannot be null"
+            );
         }
-        
-        // Charger la configuration
-        retentionHours = plugin.getConfigManager().getLong("logs.retention-hours", 36);
-        maxLogsPerFaction = plugin.getConfigManager().getInt("logs.max-per-faction", 500);
-        long cleanupInterval = plugin.getConfigManager().getLong("logs.cleanup-interval-minutes", 30);
-        long flushInterval = plugin.getConfigManager().getLong("logs.flush-interval-seconds", 10) * 20L;
-        if (flushInterval <= 0) flushInterval = DEFAULT_FLUSH_INTERVAL_TICKS;
-        
-        // Tâche de flush batch — sauvegarde les factions dirty toutes les N secondes
-        flushTask = plugin.getServer().getScheduler().runTaskTimerAsynchronously(
-            plugin,
-            this::flushDirty,
-            flushInterval,
-            flushInterval
-        );
-        
-        // Tâche de nettoyage des logs expirés (uniquement en mémoire)
-        cleanupTask = plugin.getServer().getScheduler().runTaskTimerAsynchronously(
-            plugin, 
-            this::cleanupExpiredLogs, 
-            20L * 60 * cleanupInterval,
-            20L * 60 * cleanupInterval
-        );
-        
-        plugin.getLogger().info("LogManager initialisé (rétention: " + retentionHours 
-            + "h, max/faction: " + maxLogsPerFaction 
-            + ", flush: " + (flushInterval / 20) + "s)");
+
+        this.plugin = plugin;
+        this.gson = new Gson();
+
+        this.logCache =
+                new ConcurrentHashMap<String, List<FactionLog>>();
+
+        this.dirtyFactions =
+                ConcurrentHashMap.newKeySet();
+
+        this.auditService =
+                new AuditService(plugin);
     }
-    
-    /**
-     * Arrête le gestionnaire de logs
-     */
+
+    public void initialize() {
+        logsFolder =
+                new File(
+                        plugin.getDataFolder(),
+                        "logs"
+                );
+
+        if (!logsFolder.exists()
+                && !logsFolder.mkdirs()) {
+            plugin.getLogger().warning(
+                    "Impossible de créer le dossier logs legacy"
+            );
+        }
+
+        retentionHours =
+                Math.max(
+                        1L,
+                        plugin.getConfigManager()
+                                .getLong(
+                                        "logs.retention-hours",
+                                        36L
+                                )
+                );
+
+        maxLogsPerFaction =
+                clamp(
+                        plugin.getConfigManager()
+                                .getInt(
+                                        "logs.max-per-faction",
+                                        500
+                                ),
+                        10,
+                        10000
+                );
+
+        long cleanupIntervalMinutes =
+                Math.max(
+                        1L,
+                        plugin.getConfigManager()
+                                .getLong(
+                                        "logs.cleanup-interval-minutes",
+                                        30L
+                                )
+                );
+
+        long flushIntervalTicks =
+                plugin.getConfigManager()
+                        .getLong(
+                                "logs.flush-interval-seconds",
+                                10L
+                        )
+                        * 20L;
+
+        if (flushIntervalTicks <= 0L) {
+            flushIntervalTicks =
+                    DEFAULT_FLUSH_INTERVAL_TICKS;
+        }
+
+        auditService.initialize();
+
+        flushTask =
+                plugin.getServer()
+                        .getScheduler()
+                        .runTaskTimerAsynchronously(
+                                plugin,
+                                new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        flushDirty();
+                                    }
+                                },
+                                flushIntervalTicks,
+                                flushIntervalTicks
+                        );
+
+        long cleanupTicks =
+                20L
+                        * 60L
+                        * cleanupIntervalMinutes;
+
+        cleanupTask =
+                plugin.getServer()
+                        .getScheduler()
+                        .runTaskTimerAsynchronously(
+                                plugin,
+                                new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        cleanupExpiredLogs();
+                                    }
+                                },
+                                cleanupTicks,
+                                cleanupTicks
+                        );
+
+        plugin.getLogger().info(
+                "LogManager V2 initialisé "
+                        + "(legacy JSON + audit.db)"
+        );
+    }
+
     public void shutdown() {
         if (flushTask != null) {
             flushTask.cancel();
             flushTask = null;
         }
+
         if (cleanupTask != null) {
             cleanupTask.cancel();
             cleanupTask = null;
         }
-        
-        // Flush final synchrone — sauvegarder tout
+
         flushDirty();
+        auditService.shutdown();
         logCache.clear();
+        dirtyFactions.clear();
     }
-    
+
+    public AuditService getAuditService() {
+        return auditService;
+    }
+
     // ============================================================
-    // LOGGING METHODS
+    // Legacy log API
     // ============================================================
-    
-    /**
-     * Ajoute un log pour une action simple (sans cible)
-     */
-    public void log(String factionId, LogType type, Player player, String details) {
-        log(factionId, type, player.getUniqueId(), player.getName(), null, null, details);
+
+    public void log(
+            String factionId,
+            LogType type,
+            Player player,
+            String details
+    ) {
+        log(
+                factionId,
+                type,
+                player != null
+                        ? player.getUniqueId()
+                        : null,
+                player != null
+                        ? player.getName()
+                        : "SYSTEM",
+                null,
+                null,
+                details
+        );
     }
-    
-    /**
-     * Ajoute un log pour une action avec cible
-     */
-    public void log(String factionId, LogType type, Player player, Player target, String details) {
-        UUID targetUuid = target != null ? target.getUniqueId() : null;
-        String targetName = target != null ? target.getName() : null;
-        log(factionId, type, player.getUniqueId(), player.getName(), targetUuid, targetName, details);
+
+    public void log(
+            String factionId,
+            LogType type,
+            Player player,
+            Player target,
+            String details
+    ) {
+        log(
+                factionId,
+                type,
+                player != null
+                        ? player.getUniqueId()
+                        : null,
+                player != null
+                        ? player.getName()
+                        : "SYSTEM",
+                target != null
+                        ? target.getUniqueId()
+                        : null,
+                target != null
+                        ? target.getName()
+                        : null,
+                details
+        );
     }
-    
-    /**
-     * Ajoute un log avec tous les paramètres.
-     * Le log est ajouté en mémoire et la faction est marquée dirty.
-     * L'écriture disque est différée au prochain flush batch.
-     */
-    public void log(String factionId, LogType type, 
-                    UUID playerUuid, String playerName,
-                    UUID targetUuid, String targetName,
-                    String details) {
-        FactionLog logEntry = new FactionLog(factionId, type, 
-            playerUuid, playerName, targetUuid, targetName, details);
-        
-        List<FactionLog> logs = getOrCreateLogs(factionId);
+
+    public void log(
+            String factionId,
+            LogType type,
+            UUID playerUuid,
+            String playerName,
+            UUID targetUuid,
+            String targetName,
+            String details
+    ) {
+        if (factionId == null
+                || factionId.trim().isEmpty()
+                || type == null) {
+            return;
+        }
+
+        FactionLog entry =
+                new FactionLog(
+                        factionId,
+                        type,
+                        playerUuid,
+                        playerName,
+                        targetUuid,
+                        targetName,
+                        sanitizeLegacyDetails(
+                                details
+                        )
+                );
+
+        /*
+         * audit.db reste la trace sécurité complète, même lorsqu'une catégorie
+         * est masquée du petit historique legacy /f logs.
+         */
+        auditService.recordLegacy(
+                entry
+        );
+
+        if (!isLegacyTypeEnabled(
+                type
+        )) {
+            return;
+        }
+
+        List<FactionLog> logs =
+                getOrCreateLogs(
+                        factionId
+                );
+
         synchronized (logs) {
-            logs.add(logEntry);
-            // Élaguer si au-dessus du plafond (supprimer les plus anciens)
-            while (logs.size() > maxLogsPerFaction) {
+            logs.add(entry);
+
+            while (logs.size()
+                    > maxLogsPerFaction) {
                 logs.remove(0);
             }
         }
-        
-        // Marquer dirty — sera sauvegardé au prochain flush
-        dirtyFactions.add(factionId);
+
+        dirtyFactions.add(
+                factionId
+        );
     }
-    
-    // ============================================================
-    // LOG RETRIEVAL (sans streams — boucles simples pour réduire les allocations)
-    // ============================================================
-    
+
     /**
-     * Récupère tous les logs d'une faction
+     * Les toggles logs.types.* ne concernent que l'historique legacy /f logs.
+     * L'audit structuré reste toujours enregistré.
      */
-    public List<FactionLog> getLogs(String factionId) {
-        List<FactionLog> logs = getOrLoadLogs(factionId);
-        synchronized (logs) {
-            return new ArrayList<>(logs);
+    private boolean isLegacyTypeEnabled(
+            LogType type
+    ) {
+        if (type == null) {
+            return false;
+        }
+
+        switch (type) {
+            case MEMBER_JOIN:
+            case MEMBER_LEAVE:
+            case MEMBER_KICK:
+            case MEMBER_PROMOTE:
+            case MEMBER_DEMOTE:
+                return plugin.getConfigManager()
+                        .getBoolean(
+                                "logs.types.members",
+                                true
+                        );
+
+            case TERRITORY_CLAIM:
+            case TERRITORY_UNCLAIM:
+            case TERRITORY_SETHOME:
+            case TERRITORY_SETWARP:
+            case TERRITORY_DELWARP:
+                return plugin.getConfigManager()
+                        .getBoolean(
+                                "logs.types.territory",
+                                true
+                        );
+
+            case ECONOMY_DEPOSIT:
+            case ECONOMY_WITHDRAW:
+                return plugin.getConfigManager()
+                        .getBoolean(
+                                "logs.types.economy",
+                                true
+                        );
+
+            case TP_HOME:
+            case TP_WARP:
+            case TP_INVITE:
+                return plugin.getConfigManager()
+                        .getBoolean(
+                                "logs.types.teleport",
+                                true
+                        );
+
+            case CHEST_DEPOSIT:
+            case CHEST_WITHDRAW:
+                return plugin.getConfigManager()
+                        .getBoolean(
+                                "logs.types.chest",
+                                true
+                        );
+
+            default:
+                /*
+                 * Types V2 sans toggle historique dédié: visibles par défaut.
+                 */
+                return true;
         }
     }
-    
-    /**
-     * Récupère les logs filtrés par type
-     */
-    public List<FactionLog> getLogs(String factionId, LogType type) {
-        List<FactionLog> logs = getOrLoadLogs(factionId);
-        List<FactionLog> result = new ArrayList<>();
+
+    // ============================================================
+    // Structured audit API
+    // ============================================================
+
+    public boolean audit(
+            OperationContext context,
+            AuditCategory category,
+            String action,
+            AuditOutcome outcome,
+            String factionId,
+            UUID targetId,
+            String targetName,
+            String details
+    ) {
+        return auditService.record(
+                category,
+                action,
+                outcome,
+                factionId,
+                context,
+                targetId,
+                targetName,
+                details
+        );
+    }
+
+    public boolean auditSystem(
+            AuditCategory category,
+            String action,
+            AuditOutcome outcome,
+            String factionId,
+            String details
+    ) {
+        return auditService.recordSystem(
+                category,
+                action,
+                outcome,
+                factionId,
+                details
+        );
+    }
+
+    // ============================================================
+    // Legacy retrieval
+    // ============================================================
+
+    public List<FactionLog> getLogs(
+            String factionId
+    ) {
+        List<FactionLog> logs =
+                getOrLoadLogs(
+                        factionId
+                );
+
         synchronized (logs) {
-            for (int i = 0, n = logs.size(); i < n; i++) {
-                FactionLog log = logs.get(i);
+            return new ArrayList<FactionLog>(
+                    logs
+            );
+        }
+    }
+
+    public List<FactionLog> getLogs(
+            String factionId,
+            LogType type
+    ) {
+        List<FactionLog> logs =
+                getOrLoadLogs(
+                        factionId
+                );
+
+        List<FactionLog> result =
+                new ArrayList<FactionLog>();
+
+        synchronized (logs) {
+            for (FactionLog log : logs) {
                 if (log.getType() == type) {
                     result.add(log);
                 }
             }
         }
+
         return result;
     }
-    
-    /**
-     * Récupère les logs filtrés par types multiples
-     */
-    public List<FactionLog> getLogs(String factionId, Set<LogType> types) {
-        List<FactionLog> logs = getOrLoadLogs(factionId);
-        List<FactionLog> result = new ArrayList<>();
+
+    public List<FactionLog> getLogs(
+            String factionId,
+            Set<LogType> types
+    ) {
+        List<FactionLog> logs =
+                getOrLoadLogs(
+                        factionId
+                );
+
+        List<FactionLog> result =
+                new ArrayList<FactionLog>();
+
+        if (types == null
+                || types.isEmpty()) {
+            return result;
+        }
+
         synchronized (logs) {
-            for (int i = 0, n = logs.size(); i < n; i++) {
-                FactionLog log = logs.get(i);
-                if (types.contains(log.getType())) {
+            for (FactionLog log : logs) {
+                if (types.contains(
+                        log.getType()
+                )) {
                     result.add(log);
                 }
             }
         }
+
         return result;
     }
-    
-    /**
-     * Récupère les logs d'un joueur spécifique
-     */
-    public List<FactionLog> getLogsByPlayer(String factionId, UUID playerUuid) {
-        List<FactionLog> logs = getOrLoadLogs(factionId);
-        List<FactionLog> result = new ArrayList<>();
+
+    public List<FactionLog> getLogsByPlayer(
+            String factionId,
+            UUID playerUuid
+    ) {
+        List<FactionLog> result =
+                new ArrayList<FactionLog>();
+
+        if (playerUuid == null) {
+            return result;
+        }
+
+        List<FactionLog> logs =
+                getOrLoadLogs(
+                        factionId
+                );
+
         synchronized (logs) {
-            for (int i = 0, n = logs.size(); i < n; i++) {
-                FactionLog log = logs.get(i);
-                if (log.getPlayerUuid().equals(playerUuid) || 
-                    (log.getTargetUuid() != null && log.getTargetUuid().equals(playerUuid))) {
+            for (FactionLog log : logs) {
+                if (playerUuid.equals(
+                        log.getPlayerUuid()
+                )
+                        || playerUuid.equals(
+                                log.getTargetUuid()
+                        )) {
                     result.add(log);
                 }
             }
         }
+
         return result;
     }
-    
-    /**
-     * Récupère les N derniers logs
-     */
-    public List<FactionLog> getRecentLogs(String factionId, int limit) {
-        List<FactionLog> logs = getOrLoadLogs(factionId);
+
+    public List<FactionLog> getRecentLogs(
+            String factionId,
+            int limit
+    ) {
+        List<FactionLog> logs =
+                getOrLoadLogs(
+                        factionId
+                );
+
         synchronized (logs) {
-            int start = Math.max(0, logs.size() - limit);
-            return new ArrayList<>(logs.subList(start, logs.size()));
+            int safeLimit =
+                    Math.max(
+                            0,
+                            limit
+                    );
+
+            int start =
+                    Math.max(
+                            0,
+                            logs.size()
+                                    - safeLimit
+                    );
+
+            return new ArrayList<FactionLog>(
+                    logs.subList(
+                            start,
+                            logs.size()
+                    )
+            );
         }
     }
-    
-    /**
-     * Récupère les logs pour une catégorie (membres, territoire, économie)
-     */
-    public List<FactionLog> getLogsByCategory(String factionId, String category) {
-        Set<LogType> types = getTypesForCategory(category);
-        return getLogs(factionId, types);
+
+    public List<FactionLog> getLogsByCategory(
+            String factionId,
+            String category
+    ) {
+        return getLogs(
+                factionId,
+                getTypesForCategory(
+                        category
+                )
+        );
     }
-    
-    /**
-     * Retourne les types de log pour une catégorie (instances pré-calculées)
-     */
-    private Set<LogType> getTypesForCategory(String category) {
-        switch (category.toLowerCase()) {
+
+    public void deleteFactionLogs(
+            String factionId
+    ) {
+        if (factionId == null) {
+            return;
+        }
+
+        logCache.remove(factionId);
+        dirtyFactions.remove(factionId);
+
+        File file =
+                new File(
+                        logsFolder,
+                        factionId + ".json"
+                );
+
+        if (file.exists()
+                && !file.delete()) {
+            plugin.getLogger().warning(
+                    "Impossible de supprimer "
+                            + file.getName()
+            );
+        }
+
+        /*
+         * audit.db n'est volontairement PAS purgée.
+         * Une faction dissoute doit rester auditable.
+         */
+    }
+
+    public int getLogCount(
+            String factionId
+    ) {
+        return getOrLoadLogs(
+                factionId
+        ).size();
+    }
+
+    // ============================================================
+    // Legacy cache / JSON
+    // ============================================================
+
+    private Set<LogType> getTypesForCategory(
+            String category
+    ) {
+        String normalized =
+                category != null
+                        ? category.toLowerCase()
+                        : "";
+
+        switch (normalized) {
             case "membres":
             case "members":
                 return CAT_MEMBRES;
+
             case "territoire":
             case "territory":
                 return CAT_TERRITOIRE;
+
             case "economie":
             case "economy":
                 return CAT_ECONOMIE;
+
             case "tp":
             case "teleport":
                 return CAT_TP;
+
             case "coffre":
             case "chest":
                 return CAT_COFFRE;
+
             default:
                 return CAT_ALL;
         }
     }
-    
-    // ============================================================
-    // CACHE MANAGEMENT
-    // ============================================================
-    
-    /**
-     * Récupère ou crée la liste des logs pour une faction.
-     * Retourne une liste synchronisée pour thread-safety.
-     */
-    private List<FactionLog> getOrCreateLogs(String factionId) {
-        return logCache.computeIfAbsent(factionId, 
-            k -> Collections.synchronizedList(new ArrayList<>()));
+
+    private List<FactionLog> getOrCreateLogs(
+            String factionId
+    ) {
+        List<FactionLog> existing =
+                logCache.get(
+                        factionId
+                );
+
+        if (existing != null) {
+            return existing;
+        }
+
+        List<FactionLog> created =
+                Collections.synchronizedList(
+                        new ArrayList<FactionLog>()
+                );
+
+        List<FactionLog> previous =
+                logCache.putIfAbsent(
+                        factionId,
+                        created
+                );
+
+        return previous != null
+                ? previous
+                : created;
     }
-    
-    /**
-     * Récupère ou charge les logs pour une faction
-     */
-    private List<FactionLog> getOrLoadLogs(String factionId) {
-        List<FactionLog> cached = logCache.get(factionId);
+
+    private List<FactionLog> getOrLoadLogs(
+            String factionId
+    ) {
+        if (factionId == null) {
+            return Collections.synchronizedList(
+                    new ArrayList<FactionLog>()
+            );
+        }
+
+        List<FactionLog> cached =
+                logCache.get(
+                        factionId
+                );
+
         if (cached != null) {
             return cached;
         }
+
         loadLogs(factionId);
-        cached = logCache.get(factionId);
-        return cached != null ? cached : Collections.synchronizedList(new ArrayList<>());
+
+        cached =
+                logCache.get(
+                        factionId
+                );
+
+        return cached != null
+                ? cached
+                : getOrCreateLogs(
+                        factionId
+                );
     }
-    
-    // ============================================================
-    // BATCH FLUSH (cœur de l'optimisation)
-    // ============================================================
-    
-    /**
-     * Flush toutes les factions dirty vers le disque.
-     * Appelé périodiquement par la tâche async, et une fois à shutdown.
-     * Utilise un drain atomique du dirty-set pour éviter les race conditions.
-     */
+
     private void flushDirty() {
-        if (dirtyFactions.isEmpty()) return;
-        
-        // Drain atomique: copier et vider en une seule opération
-        Set<String> toFlush = ConcurrentHashMap.newKeySet();
-        for (String id : dirtyFactions) {
-            toFlush.add(id);
-        }
-        dirtyFactions.removeAll(toFlush);
-        
-        for (String factionId : toFlush) {
-            saveLogs(factionId);
-        }
-    }
-    
-    // ============================================================
-    // FILE I/O
-    // ============================================================
-    
-    /**
-     * Charge les logs d'une faction depuis le fichier
-     */
-    private void loadLogs(String factionId) {
-        File file = new File(logsFolder, factionId + ".json");
-        if (!file.exists()) {
-            logCache.put(factionId, Collections.synchronizedList(new ArrayList<>()));
+        if (dirtyFactions.isEmpty()) {
             return;
         }
-        
-        try (FileReader reader = new FileReader(file)) {
-            JsonElement element = new JsonParser().parse(reader);
-            if (element.isJsonArray()) {
-                List<FactionLog> logs = new ArrayList<>();
-                JsonArray array = element.getAsJsonArray();
-                
-                for (JsonElement logElement : array) {
-                    FactionLog log = parseLogEntry(logElement.getAsJsonObject(), factionId);
-                    if (log != null && !log.isExpired(retentionHours)) {
+
+        Set<String> toFlush =
+                ConcurrentHashMap.newKeySet();
+
+        toFlush.addAll(
+                dirtyFactions
+        );
+
+        dirtyFactions.removeAll(
+                toFlush
+        );
+
+        for (String factionId : toFlush) {
+            if (!saveLogs(
+                    factionId
+            )) {
+                dirtyFactions.add(
+                        factionId
+                );
+            }
+        }
+    }
+
+    private void loadLogs(
+            String factionId
+    ) {
+        File file =
+                new File(
+                        logsFolder,
+                        factionId + ".json"
+                );
+
+        if (!file.exists()) {
+            logCache.put(
+                    factionId,
+                    Collections.synchronizedList(
+                            new ArrayList<FactionLog>()
+                    )
+            );
+
+            return;
+        }
+
+        List<FactionLog> logs =
+                new ArrayList<FactionLog>();
+
+        try (FileReader reader =
+                     new FileReader(file)) {
+
+            JsonElement element =
+                    JsonParser.parseReader(
+                            reader
+                    );
+
+            if (element != null
+                    && element.isJsonArray()) {
+
+                for (JsonElement item
+                        : element.getAsJsonArray()) {
+                    if (item == null
+                            || !item.isJsonObject()) {
+                        continue;
+                    }
+
+                    FactionLog log =
+                            parseLogEntry(
+                                    item.getAsJsonObject(),
+                                    factionId
+                            );
+
+                    if (log != null
+                            && !log.isExpired(
+                                    retentionHours
+                            )) {
                         logs.add(log);
                     }
                 }
-                
-                // Élaguer si trop de logs chargés
-                while (logs.size() > maxLogsPerFaction) {
-                    logs.remove(0);
-                }
-                
-                logCache.put(factionId, Collections.synchronizedList(logs));
             }
-        } catch (IOException e) {
-            plugin.getLogger().warning("Erreur chargement logs " + factionId + ": " + e.getMessage());
-            logCache.put(factionId, Collections.synchronizedList(new ArrayList<>()));
+
+        } catch (IOException exception) {
+            plugin.getLogger().warning(
+                    "Erreur chargement logs "
+                            + factionId
+                            + ": "
+                            + exception.getMessage()
+            );
         }
+
+        while (logs.size()
+                > maxLogsPerFaction) {
+            logs.remove(0);
+        }
+
+        logCache.put(
+                factionId,
+                Collections.synchronizedList(
+                        logs
+                )
+        );
     }
-    
-    /**
-     * Sauvegarde les logs d'une faction dans le fichier.
-     * Snapshot la liste sous synchronized pour éviter les ConcurrentModificationException.
-     */
-    private void saveLogs(String factionId) {
-        List<FactionLog> logs = logCache.get(factionId);
-        if (logs == null) return;
-        
-        // Snapshot thread-safe
+
+    private boolean saveLogs(
+            String factionId
+    ) {
+        List<FactionLog> logs =
+                logCache.get(
+                        factionId
+                );
+
+        if (logs == null) {
+            return true;
+        }
+
         List<FactionLog> snapshot;
+
         synchronized (logs) {
-            if (logs.isEmpty()) {
-                File file = new File(logsFolder, factionId + ".json");
-                if (file.exists()) {
-                    file.delete();
-                }
-                return;
-            }
-            snapshot = new ArrayList<>(logs);
+            snapshot =
+                    new ArrayList<FactionLog>(
+                            logs
+                    );
         }
-        
-        File file = new File(logsFolder, factionId + ".json");
-        
-        try (FileWriter writer = new FileWriter(file)) {
-            JsonArray array = new JsonArray();
-            
+
+        File file =
+                new File(
+                        logsFolder,
+                        factionId + ".json"
+                );
+
+        if (snapshot.isEmpty()) {
+            return !file.exists()
+                    || file.delete();
+        }
+
+        try (FileWriter writer =
+                     new FileWriter(file)) {
+
+            JsonArray array =
+                    new JsonArray();
+
             for (FactionLog log : snapshot) {
-                if (!log.isExpired(retentionHours)) {
-                    array.add(serializeLogEntry(log));
+                if (log != null
+                        && !log.isExpired(
+                                retentionHours
+                        )) {
+                    array.add(
+                            serializeLogEntry(
+                                    log
+                            )
+                    );
                 }
             }
-            
-            gson.toJson(array, writer);
-        } catch (IOException e) {
-            plugin.getLogger().severe("Erreur sauvegarde logs " + factionId + ": " + e.getMessage());
+
+            gson.toJson(
+                    array,
+                    writer
+            );
+
+            return true;
+
+        } catch (IOException exception) {
+            plugin.getLogger().severe(
+                    "Erreur sauvegarde logs "
+                            + factionId
+                            + ": "
+                            + exception.getMessage()
+            );
+
+            return false;
         }
     }
-    
-    /**
-     * Parse un log depuis JSON
-     */
-    private FactionLog parseLogEntry(JsonObject json, String factionId) {
+
+    private FactionLog parseLogEntry(
+            JsonObject json,
+            String factionId
+    ) {
         try {
-            String id = json.has("id") ? json.get("id").getAsString() : UUID.randomUUID().toString();
-            LogType type = LogType.valueOf(json.get("type").getAsString());
-            UUID playerUuid = UUID.fromString(json.get("playerUuid").getAsString());
-            String playerName = json.get("playerName").getAsString();
-            
-            UUID targetUuid = null;
-            String targetName = null;
-            if (json.has("targetUuid") && !json.get("targetUuid").isJsonNull()) {
-                targetUuid = UUID.fromString(json.get("targetUuid").getAsString());
-                targetName = json.get("targetName").getAsString();
-            }
-            
-            String details = json.has("details") ? json.get("details").getAsString() : "";
-            long timestamp = json.get("timestamp").getAsLong();
-            
-            return new FactionLog(id, factionId, type, playerUuid, playerName, 
-                targetUuid, targetName, details, timestamp);
-        } catch (Exception e) {
-            plugin.getLogger().warning("Erreur parsing log: " + e.getMessage());
+            String id =
+                    json.has("id")
+                            ? json.get("id")
+                                    .getAsString()
+                            : UUID.randomUUID()
+                                    .toString();
+
+            LogType type =
+                    LogType.valueOf(
+                            json.get("type")
+                                    .getAsString()
+                    );
+
+            UUID playerUuid =
+                    parseUuid(
+                            json.has("playerUuid")
+                                    && !json.get("playerUuid")
+                                            .isJsonNull()
+                                    ? json.get("playerUuid")
+                                            .getAsString()
+                                    : null
+                    );
+
+            String playerName =
+                    json.has("playerName")
+                            && !json.get("playerName")
+                                    .isJsonNull()
+                            ? json.get("playerName")
+                                    .getAsString()
+                            : "SYSTEM";
+
+            UUID targetUuid =
+                    parseUuid(
+                            json.has("targetUuid")
+                                    && !json.get("targetUuid")
+                                            .isJsonNull()
+                                    ? json.get("targetUuid")
+                                            .getAsString()
+                                    : null
+                    );
+
+            String targetName =
+                    json.has("targetName")
+                            && !json.get("targetName")
+                                    .isJsonNull()
+                            ? json.get("targetName")
+                                    .getAsString()
+                            : null;
+
+            String details =
+                    json.has("details")
+                            && !json.get("details")
+                                    .isJsonNull()
+                            ? sanitizeLegacyDetails(
+                                    json.get("details")
+                                            .getAsString()
+                            )
+                            : "";
+
+            long timestamp =
+                    json.has("timestamp")
+                            ? json.get("timestamp")
+                                    .getAsLong()
+                            : System.currentTimeMillis();
+
+            return new FactionLog(
+                    id,
+                    factionId,
+                    type,
+                    playerUuid,
+                    playerName,
+                    targetUuid,
+                    targetName,
+                    details,
+                    timestamp
+            );
+
+        } catch (RuntimeException exception) {
+            plugin.getLogger().warning(
+                    "Erreur parsing log "
+                            + factionId
+                            + ": "
+                            + exception.getMessage()
+            );
+
             return null;
         }
     }
-    
-    /**
-     * Sérialise un log en JSON
-     */
-    private JsonObject serializeLogEntry(FactionLog log) {
-        JsonObject json = new JsonObject();
-        json.addProperty("id", log.getId());
-        json.addProperty("type", log.getType().name());
-        json.addProperty("playerUuid", log.getPlayerUuid().toString());
-        json.addProperty("playerName", log.getPlayerName());
-        
-        if (log.hasTarget()) {
-            json.addProperty("targetUuid", log.getTargetUuid().toString());
-            json.addProperty("targetName", log.getTargetName());
+
+    private JsonObject serializeLogEntry(
+            FactionLog log
+    ) {
+        JsonObject json =
+                new JsonObject();
+
+        json.addProperty(
+                "id",
+                log.getId()
+        );
+
+        json.addProperty(
+                "type",
+                log.getType().name()
+        );
+
+        if (log.getPlayerUuid() != null) {
+            json.addProperty(
+                    "playerUuid",
+                    log.getPlayerUuid()
+                            .toString()
+            );
         }
-        
-        json.addProperty("details", log.getDetails());
-        json.addProperty("timestamp", log.getTimestamp());
-        
+
+        if (log.getPlayerName() != null) {
+            json.addProperty(
+                    "playerName",
+                    log.getPlayerName()
+            );
+        }
+
+        if (log.getTargetUuid() != null) {
+            json.addProperty(
+                    "targetUuid",
+                    log.getTargetUuid()
+                            .toString()
+            );
+        }
+
+        if (log.getTargetName() != null) {
+            json.addProperty(
+                    "targetName",
+                    log.getTargetName()
+            );
+        }
+
+        json.addProperty(
+                "details",
+                sanitizeLegacyDetails(
+                        log.getDetails()
+                )
+        );
+
+        json.addProperty(
+                "timestamp",
+                log.getTimestamp()
+        );
+
         return json;
     }
-    
-    // ============================================================
-    // CLEANUP (uniquement le cache en mémoire — pas de chargement de fichiers non-cachés)
-    // ============================================================
-    
-    /**
-     * Nettoie les logs expirés des factions en cache.
-     * Ne charge PAS les fichiers non-cachés (économie I/O massive avec beaucoup de factions).
-     * Les fichiers non-cachés seront nettoyés naturellement au prochain chargement.
-     */
+
     private void cleanupExpiredLogs() {
         int cleaned = 0;
-        for (Map.Entry<String, List<FactionLog>> entry : logCache.entrySet()) {
-            List<FactionLog> logs = entry.getValue();
+
+        for (Map.Entry<String, List<FactionLog>> entry
+                : logCache.entrySet()) {
+            List<FactionLog> logs =
+                    entry.getValue();
+
             int before;
+
             synchronized (logs) {
                 before = logs.size();
-                logs.removeIf(log -> log.isExpired(retentionHours));
+
+                for (int i = logs.size() - 1;
+                        i >= 0;
+                        i--) {
+                    if (logs.get(i)
+                            .isExpired(
+                                    retentionHours
+                            )) {
+                        logs.remove(i);
+                    }
+                }
+
                 if (logs.size() < before) {
-                    cleaned += (before - logs.size());
-                    dirtyFactions.add(entry.getKey());
+                    cleaned += before
+                            - logs.size();
+
+                    dirtyFactions.add(
+                            entry.getKey()
+                    );
                 }
             }
         }
-        
-        // Supprimer les fichiers de factions qui n'existent plus
-        // (check rapide par liste de fichiers, pas de chargement)
-        File[] files = logsFolder.listFiles((dir, name) -> name.endsWith(".json"));
-        if (files != null) {
-            for (File file : files) {
-                // Supprimer si le fichier est très ancien (> 2x rétention)
-                long ageHours = (System.currentTimeMillis() - file.lastModified()) / 3600000L;
-                if (ageHours > retentionHours * 2) {
-                    file.delete();
-                    cleaned++;
-                }
-            }
-        }
-        
+
         if (cleaned > 0) {
-            plugin.getLogger().info("Nettoyage logs: " + cleaned + " entrées/fichiers supprimés");
+            plugin.getLogger().info(
+                    "Nettoyage logs legacy: "
+                            + cleaned
+                            + " entrées"
+            );
         }
     }
-    
-    /**
-     * Supprime tous les logs d'une faction
-     */
-    public void deleteFactionLogs(String factionId) {
-        logCache.remove(factionId);
-        dirtyFactions.remove(factionId);
-        File file = new File(logsFolder, factionId + ".json");
-        if (file.exists()) {
-            file.delete();
+
+    private static UUID parseUuid(
+            String value
+    ) {
+        if (value == null
+                || value.trim().isEmpty()) {
+            return null;
+        }
+
+        try {
+            return UUID.fromString(value);
+        } catch (IllegalArgumentException exception) {
+            return null;
         }
     }
-    
-    /**
-     * Retourne le nombre total de logs pour une faction
-     */
-    public int getLogCount(String factionId) {
-        List<FactionLog> logs = getOrLoadLogs(factionId);
-        synchronized (logs) {
-            return logs.size();
+
+    private static String sanitizeLegacyDetails(
+            String details
+    ) {
+        if (details == null) {
+            return "";
         }
+
+        String result =
+                details.replaceAll(
+                        "(?i)(password|passwd|pwd)=([^;\\s]+)",
+                        "$1=[REDACTED]"
+                );
+
+        return result.length() > 4096
+                ? result.substring(0, 4096)
+                : result;
+    }
+
+    private static int clamp(
+            int value,
+            int min,
+            int max
+    ) {
+        return Math.max(
+                min,
+                Math.min(
+                        max,
+                        value
+                )
+        );
     }
 }

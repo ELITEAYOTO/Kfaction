@@ -1,667 +1,1490 @@
 package me.krunsh.kfaction.managers;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-import org.bukkit.Bukkit;
 import org.bukkit.Chunk;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
 
 import me.krunsh.kfaction.Kfaction;
-import me.krunsh.kfaction.api.event.FactionClaimEvent;
+import me.krunsh.kfaction.core.operation.OperationContext;
+import me.krunsh.kfaction.core.operation.OperationResult;
+import me.krunsh.kfaction.core.operation.OperationSource;
 import me.krunsh.kfaction.data.FLocation;
 import me.krunsh.kfaction.data.Faction;
+import me.krunsh.kfaction.data.FactionWarp;
+import me.krunsh.kfaction.data.StoredLocation;
 import me.krunsh.kfaction.data.Relation;
+import me.krunsh.kfaction.services.ClaimService;
+import me.krunsh.kfaction.services.UnclaimService;
+import me.krunsh.kfaction.services.ZoneService;
+import me.krunsh.kfaction.services.claim.ClaimBatchResult;
+import me.krunsh.kfaction.services.claim.UnclaimBatchResult;
+import me.krunsh.kfaction.zones.GlobalZoneType;
+import me.krunsh.kfaction.zones.ZoneDefinition;
 
 /**
- * Gestionnaire des claims (territoires)
- * Gère le mapping chunk -> faction et les opérations de claim/unclaim
+ * Index/runtime adapter des claims.
+ *
+ * V2:
+ * - ClaimService possède la validation et la planification métier.
+ * - ClaimManager possède l'index chunk -> faction et l'application bas niveau.
+ * - les anciennes méthodes claim(...) restent compatibles.
  */
 public class ClaimManager {
-    
+
     private final Kfaction plugin;
-    
-    // Index: FLocation -> factionId pour recherche rapide
+
     private final Map<FLocation, String> claimIndex;
 
-    // Admin auto-claim actif: UUID → "warzone" ou "safezone"
     private final Map<UUID, String> adminAutoClaimPlayers;
     private final Map<UUID, String> adminAutoUnclaimPlayers;
-    
+
+    private final ClaimService service;
+    private final UnclaimService unclaimService;
+    private final ZoneService zoneService;
+
     public ClaimManager(Kfaction plugin) {
         this.plugin = plugin;
-        this.claimIndex = new ConcurrentHashMap<>();
-        this.adminAutoClaimPlayers = new ConcurrentHashMap<>();
-        this.adminAutoUnclaimPlayers = new ConcurrentHashMap<>();
+
+        this.claimIndex =
+                new ConcurrentHashMap<FLocation, String>();
+
+        this.adminAutoClaimPlayers =
+                new ConcurrentHashMap<UUID, String>();
+
+        this.adminAutoUnclaimPlayers =
+                new ConcurrentHashMap<UUID, String>();
+
+        this.service =
+                new ClaimService(
+                        plugin,
+                        this
+                );
+
+        this.unclaimService =
+                new UnclaimService(plugin);
+
+        this.zoneService =
+                new ZoneService(
+                        plugin,
+                        this
+                );
     }
-    
-    /**
-     * Initialise le manager
-     */
+
     public void initialize() {
-        plugin.getLogger().info("ClaimManager initialisé");
+        zoneService.initialize();
+
+        plugin.getLogger().info(
+                "ClaimManager V2 initialisé "
+                        + "(claims + Global Zones V2)"
+        );
+    }
+
+    public ClaimService getService() {
+        return service;
+    }
+
+    public UnclaimService getUnclaimService() {
+        return unclaimService;
+    }
+
+    public ZoneService getZoneService() {
+        return zoneService;
+    }
+
+    public String getZoneIdAt(
+            FLocation location
+    ) {
+        return zoneService.getZoneIdAt(
+                location
+        );
+    }
+
+    public ZoneDefinition getZoneDefinitionAt(
+            FLocation location
+    ) {
+        return zoneService.getDefinitionAt(
+                location
+        );
     }
 
     /**
-     * Reconstruit l'index chunk→faction depuis les objets Faction déjà chargés en mémoire.
-     * À appeler APRÈS storageManager.loadAll() pour que getFactionAt() soit opérationnel.
+     * Retourne uniquement le propriétaire FACTION de l'index joueur.
+     * Les Global Zones sont volontairement ignorées.
+     *
+     * Utilisé notamment par MapManager pour éviter une deuxième résolution
+     * de ZoneService après avoir déjà capturé la ZoneDefinition.
      */
+    public Faction getPlayerFactionAt(
+            FLocation location
+    ) {
+        if (location == null) {
+            return plugin.getFactionManager()
+                    .getWilderness();
+        }
+
+        String factionId =
+                claimIndex.get(location);
+
+        if (factionId == null) {
+            return plugin.getFactionManager()
+                    .getWilderness();
+        }
+
+        Faction faction =
+                plugin.getFactionManager()
+                        .getFaction(
+                                factionId
+                        );
+
+        return faction != null
+                ? faction
+                : plugin.getFactionManager()
+                        .getWilderness();
+    }
+
+    public OperationResult<String> setZone(
+            FLocation location,
+            String zoneId,
+            OperationContext context
+    ) {
+        return zoneService.setZone(
+                location,
+                zoneId,
+                context
+        );
+    }
+
+    public OperationResult<String> clearZone(
+            FLocation location,
+            String expectedZoneId,
+            OperationContext context
+    ) {
+        return zoneService.clearZone(
+                location,
+                expectedZoneId,
+                context
+        );
+    }
+
     public void rebuildClaimIndex() {
         claimIndex.clear();
-        for (Faction faction : plugin.getFactionManager().getAllFactions()) {
-            String factionId = faction.getId();
-            for (FLocation loc : faction.getClaims()) {
-                claimIndex.put(loc, factionId);
+
+        int legacyZonesImported = 0;
+
+        for (Faction faction
+                : plugin.getFactionManager()
+                        .getAllFactions()) {
+            if (faction.isSafezone()
+                    || faction.isWarzone()) {
+                GlobalZoneType type =
+                        faction.isSafezone()
+                                ? GlobalZoneType.SAFEZONE
+                                : GlobalZoneType.WARZONE;
+
+                List<FLocation> legacyClaims =
+                        new ArrayList<FLocation>(
+                                faction.getClaims()
+                        );
+
+                for (FLocation location
+                        : legacyClaims) {
+                    if (zoneService.importLegacy(
+                            location,
+                            type
+                    )) {
+                        legacyZonesImported++;
+                    }
+                }
+
+                /*
+                 * Après migration la façade système ne possède plus de claims.
+                 * La source de vérité devient exclusivement ZoneService.
+                 */
+                faction.clearClaims();
+                continue;
+            }
+
+            if (faction.isWilderness()) {
+                continue;
+            }
+
+            for (FLocation location
+                    : faction.getClaims()) {
+                if (zoneService.hasZone(location)) {
+                    /*
+                     * Une zone globale est prioritaire. Nettoyer le conflit
+                     * legacy pour éviter deux propriétaires du même chunk.
+                     */
+                    faction.removeClaim(location);
+                    plugin.getStorageManager()
+                            .markDirty(faction);
+                    continue;
+                }
+
+                claimIndex.put(
+                        location,
+                        faction.getId()
+                );
             }
         }
-        plugin.getLogger().info("ClaimManager: index reconstruit (" + claimIndex.size() + " chunks claims)");
+
+        zoneService.finishLegacyImport(
+                legacyZonesImported
+        );
+
+        plugin.getLogger().info(
+                "ClaimManager: index reconstruit ("
+                        + claimIndex.size()
+                        + " claims faction, "
+                        + zoneService.getTotalZoneChunks()
+                        + " chunks zone)"
+        );
     }
-    
-    /**
-     * Ferme le manager
-     */
+
     public void shutdown() {
         claimIndex.clear();
         adminAutoClaimPlayers.clear();
         adminAutoUnclaimPlayers.clear();
+        zoneService.shutdown();
     }
-    
-    // === Recherche ===
-    
+
+    // ============================================================
+    // Lookup
+    // ============================================================
+
     /**
-     * Obtient la faction propriétaire d'un chunk
-     * @param location La FLocation du chunk
-     * @return La faction ou wilderness si non claim
+     * ID brut de l'index. null = Wilderness/non claim.
      */
-    public Faction getFactionAt(FLocation location) {
-        String factionId = claimIndex.get(location);
+    public String getFactionIdAt(
+            FLocation location
+    ) {
+        if (location == null) {
+            return null;
+        }
+
+        String zoneId =
+                zoneService.getZoneIdAt(
+                        location
+                );
+
+        if (zoneId != null) {
+            GlobalZoneType legacy =
+                    GlobalZoneType.parse(
+                            zoneId
+                    );
+
+            /*
+             * Une zone custom n'est PAS une Faction.
+             * Les anciennes APIs ne reçoivent un factionId que pour les deux
+             * façades historiques SafeZone/WarZone.
+             */
+            return legacy != null
+                    ? legacy.getLegacyFactionId()
+                    : null;
+        }
+
+        return claimIndex.get(location);
+    }
+
+    public Faction getFactionAt(
+            FLocation location
+    ) {
+        if (location == null) {
+            return plugin.getFactionManager()
+                    .getWilderness();
+        }
+
+        String zoneId =
+                zoneService.getZoneIdAt(
+                        location
+                );
+
+        if (GlobalZoneType.SAFEZONE
+                .getConfigKey()
+                .equals(zoneId)) {
+            return plugin.getFactionManager()
+                    .getSafezone();
+        }
+
+        if (GlobalZoneType.WARZONE
+                .getConfigKey()
+                .equals(zoneId)) {
+            return plugin.getFactionManager()
+                    .getWarzone();
+        }
+
+        /*
+         * Legacy getFactionAt() ne peut pas représenter une zone custom.
+         * Elle est donc exposée comme Wilderness sur CETTE ancienne façade.
+         * Le code V2 doit utiliser getZoneIdAt()/getZoneDefinitionAt().
+         */
+        if (zoneId != null) {
+            return plugin.getFactionManager()
+                    .getWilderness();
+        }
+
+        String factionId =
+                claimIndex.get(location);
+
         if (factionId == null) {
-            return plugin.getFactionManager().getWilderness();
+            return plugin.getFactionManager()
+                    .getWilderness();
         }
-        Faction faction = plugin.getFactionManager().getFaction(factionId);
-        return faction != null ? faction : plugin.getFactionManager().getWilderness();
+
+        Faction faction =
+                plugin.getFactionManager()
+                        .getFaction(factionId);
+
+        return faction != null
+                ? faction
+                : plugin.getFactionManager()
+                        .getWilderness();
     }
-    
-    /**
-     * Obtient la faction à une location Bukkit
-     * @param location La location
-     * @return La faction propriétaire
-     */
-    public Faction getFactionAt(Location location) {
-        return getFactionAt(new FLocation(location));
+
+    public Faction getFactionAt(
+            Location location
+    ) {
+        return getFactionAt(
+                new FLocation(location)
+        );
     }
-    
-    /**
-     * Obtient la faction dans un chunk
-     * @param chunk Le chunk
-     * @return La faction propriétaire
-     */
-    public Faction getFactionAt(Chunk chunk) {
-        return getFactionAt(new FLocation(chunk));
+
+    public Faction getFactionAt(
+            Chunk chunk
+    ) {
+        return getFactionAt(
+                new FLocation(chunk)
+        );
     }
-    
-    /**
-     * Vérifie si un chunk est claim
-     * @param location La FLocation
-     * @return true si claim (pas wilderness)
-     */
-    public boolean isClaimed(FLocation location) {
-        return claimIndex.containsKey(location);
+
+    public boolean isClaimed(
+            FLocation location
+    ) {
+        return location != null
+                && (zoneService.hasZone(location)
+                || claimIndex.containsKey(location));
     }
-    
-    /**
-     * Vérifie si un chunk est en safezone
-     * @param location La FLocation
-     * @return true si safezone
-     */
-    public boolean isSafezone(FLocation location) {
-        return Faction.SAFEZONE_ID.equals(claimIndex.get(location));
+
+    public boolean isSafezone(
+            FLocation location
+    ) {
+        return zoneService.isZone(
+                location,
+                GlobalZoneType.SAFEZONE
+        );
     }
-    
-    /**
-     * Vérifie si un chunk est en warzone
-     * @param location La FLocation
-     * @return true si warzone
-     */
-    public boolean isWarzone(FLocation location) {
-        return Faction.WARZONE_ID.equals(claimIndex.get(location));
+
+    public boolean isWarzone(
+            FLocation location
+    ) {
+        return zoneService.isZone(
+                location,
+                GlobalZoneType.WARZONE
+        );
     }
-    
-    /**
-     * Vérifie si une location est en safezone
-     * @param location Location Bukkit
-     * @return true si safezone
-     */
-    public boolean isSafezone(Location location) {
-        return isSafezone(new FLocation(location));
+
+    public boolean isSafezone(
+            Location location
+    ) {
+        return isSafezone(
+                new FLocation(location)
+        );
     }
-    
-    /**
-     * Vérifie si une location est en warzone
-     * @param location Location Bukkit
-     * @return true si warzone
-     */
-    public boolean isWarzone(Location location) {
-        return isWarzone(new FLocation(location));
+
+    public boolean isWarzone(
+            Location location
+    ) {
+        return isWarzone(
+                new FLocation(location)
+        );
     }
-    
-    // === Opérations de claim ===
-    
+
+    // ============================================================
+    // Legacy claim API -> ClaimService V2
+    // ============================================================
+
+    public ClaimResult claim(
+            Faction faction,
+            FLocation location
+    ) {
+        OperationResult<ClaimBatchResult> result =
+                service.claimSingle(
+                        null,
+                        faction,
+                        location,
+                        OperationContext.system()
+                );
+
+        return ClaimResult.from(result);
+    }
+
+    public ClaimResult claim(
+            Player player,
+            Faction faction,
+            FLocation location
+    ) {
+        OperationContext context =
+                player == null
+                        ? OperationContext.system()
+                        : OperationContext.actor(
+                                player.getUniqueId(),
+                                player.getName(),
+                                OperationSource.COMMAND
+                        );
+
+        OperationResult<ClaimBatchResult> result =
+                service.claimSingle(
+                        player,
+                        faction,
+                        location,
+                        context
+                );
+
+        return ClaimResult.from(result);
+    }
+
     /**
-     * Tente de claim un chunk pour une faction
-     * @param faction La faction
-     * @param location La FLocation
-     * @return Résultat du claim
+     * Commit bas niveau réservé à ClaimService V2.
+     *
+     * Le propriétaire attendu est revalidé une dernière fois ici afin
+     * d'empêcher un appel stale de corrompre l'index.
      */
-    public ClaimResult claim(Faction faction, FLocation location) {
-        // Vérifier si déjà claim par cette faction
-        String currentOwner = claimIndex.get(location);
-        if (faction.getId().equals(currentOwner)) {
-            return ClaimResult.ALREADY_OWNED;
+    public void commitPlannedClaim(
+            Faction newOwner,
+            FLocation location,
+            String expectedOwnerId
+    ) {
+        if (newOwner == null
+                || newOwner.isSystemFaction()
+                || location == null) {
+            throw new IllegalArgumentException(
+                    "Invalid planned claim"
+            );
         }
-        
-        // Vérifier si claim par une autre faction
-        if (currentOwner != null) {
-            Faction owner = plugin.getFactionManager().getFaction(currentOwner);
-            if (owner != null && !owner.isWilderness()) {
-                // Vérifier si la faction est raidable (overclaim)
-                if (!isRaidable(owner)) {
-                    return ClaimResult.OWNED_BY_OTHER;
+
+        String actualOwnerId =
+                claimIndex.get(location);
+
+        if (!Objects.equals(
+                actualOwnerId,
+                expectedOwnerId
+        )) {
+            throw new IllegalStateException(
+                    "Claim owner changed for "
+                            + location.getKey()
+                            + " expected="
+                            + expectedOwnerId
+                            + " actual="
+                            + actualOwnerId
+            );
+        }
+
+        Faction oldOwner = null;
+        String oldClaimGroupId = null;
+        StoredLocation oldHome = null;
+        Map<String, FactionWarp> oldWarps =
+                new HashMap<String, FactionWarp>();
+
+        if (actualOwnerId != null) {
+            oldOwner =
+                    plugin.getFactionManager()
+                            .getFaction(
+                                    actualOwnerId
+                            );
+
+            if (oldOwner == null) {
+                throw new IllegalStateException(
+                        "Unknown old claim owner "
+                                + actualOwnerId
+                );
+            }
+
+            oldClaimGroupId =
+                    oldOwner.getClaimGroupId(
+                            location
+                    );
+
+            StoredLocation candidateHome =
+                    oldOwner.getStoredHome();
+
+            if (candidateHome != null
+                    && candidateHome.isInChunk(
+                            location
+                    )) {
+                oldHome = candidateHome;
+            }
+
+            for (Map.Entry<String, FactionWarp> entry
+                    : oldOwner.getWarpDataSnapshot()
+                            .entrySet()) {
+                FactionWarp warp =
+                        entry.getValue();
+
+                if (warp != null
+                        && warp.getStoredLocation() != null
+                        && warp.getStoredLocation()
+                                .isInChunk(
+                                        location
+                                )) {
+                    oldWarps.put(
+                            entry.getKey(),
+                            warp
+                    );
                 }
             }
+
+            oldOwner.removeClaim(location);
+            checkAndRemoveHomeInChunk(
+                    oldOwner,
+                    location
+            );
+            checkAndRemoveWarpsInChunk(
+                    oldOwner,
+                    location
+            );
         }
-        
-        // Vérifier la limite de claims
-        int maxClaims = getMaxClaims(faction);
-        if (faction.getClaimCount() >= maxClaims) {
-            return ClaimResult.LIMIT_REACHED;
-        }
-        
-        // Vérifier la connexité si configuré
-        if (plugin.getConfigManager().getBoolean("claims.require-connected", false)) {
-            if (faction.getClaimCount() > 0 && !isAdjacentToFaction(location, faction)) {
-                return ClaimResult.NOT_CONNECTED;
-            }
-        }
-        
-        // Vérifier la distance minimum du spawn si configuré
-        int minDistanceSpawn = plugin.getConfigManager().getInt("claims.min-distance-spawn", 0);
-        if (minDistanceSpawn > 0) {
-            Location spawn = location.getWorld().getSpawnLocation();
-            FLocation spawnChunk = new FLocation(spawn);
-            if (location.distanceTo(spawnChunk) < minDistanceSpawn) {
-                return ClaimResult.TOO_CLOSE_TO_SPAWN;
-            }
-        }
-        
-        // Effectuer le claim
-        performClaim(faction, location);
-        return ClaimResult.SUCCESS;
-    }
-    
-    /**
-     * Tente de claim un chunk pour une faction avec déclenchement de l'event API
-     * @param player Le joueur qui claim
-     * @param faction La faction
-     * @param location La FLocation
-     * @return Résultat du claim
-     */
-    public ClaimResult claim(Player player, Faction faction, FLocation location) {
-        // Vérifications préliminaires
-        String currentOwner = claimIndex.get(location);
-        if (faction.getId().equals(currentOwner)) {
-            return ClaimResult.ALREADY_OWNED;
-        }
-        
-        // Déterminer le type de claim et l'ancien propriétaire
-        Faction previousOwner = null;
-        FactionClaimEvent.ClaimType claimType = FactionClaimEvent.ClaimType.CLAIM;
-        
-        if (currentOwner != null) {
-            previousOwner = plugin.getFactionManager().getFaction(currentOwner);
-            if (previousOwner != null && !previousOwner.isWilderness()) {
-                if (!isRaidable(previousOwner)) {
-                    return ClaimResult.OWNED_BY_OTHER;
-                }
-                claimType = FactionClaimEvent.ClaimType.OVERCLAIM;
-            }
-        }
-        
-        // Vérifier la limite de claims
-        int maxClaims = getMaxClaims(faction);
-        if (faction.getClaimCount() >= maxClaims) {
-            return ClaimResult.LIMIT_REACHED;
-        }
-        
-        // Vérifier la connexité
-        if (plugin.getConfigManager().getBoolean("claims.require-connected", false)) {
-            if (faction.getClaimCount() > 0 && !isAdjacentToFaction(location, faction)) {
-                return ClaimResult.NOT_CONNECTED;
-            }
-        }
-        
-        // Vérifier distance spawn
-        int minDistanceSpawn = plugin.getConfigManager().getInt("claims.min-distance-spawn", 0);
-        if (minDistanceSpawn > 0) {
-            Location spawn = location.getWorld().getSpawnLocation();
-            FLocation spawnChunk = new FLocation(spawn);
-            if (location.distanceTo(spawnChunk) < minDistanceSpawn) {
-                return ClaimResult.TOO_CLOSE_TO_SPAWN;
-            }
-        }
-        
-        // Déclencher l'event API
-        Chunk bukkitChunk = location.getWorld().getChunkAt(location.getX(), location.getZ());
-        FactionClaimEvent event = new FactionClaimEvent(player, faction, bukkitChunk, previousOwner, claimType);
-        Bukkit.getPluginManager().callEvent(event);
-        
-        if (event.isCancelled()) {
-            String reason = event.getCancelReason();
-            return reason != null ? new ClaimResult(false, reason) : ClaimResult.CANCELLED;
-        }
-        
-        // Effectuer le claim
-        performClaim(faction, location);
-        return ClaimResult.SUCCESS;
-    }
-    
-    /**
-     * Effectue réellement le claim (sans vérifications)
-     */
-    private void performClaim(Faction faction, FLocation location) {
-        // Retirer de l'ancien propriétaire si besoin
-        String oldOwnerId = claimIndex.get(location);
-        if (oldOwnerId != null) {
-            Faction oldOwner = plugin.getFactionManager().getFaction(oldOwnerId);
+
+        if (!newOwner.addClaim(location)) {
+            /*
+             * Violation d'invariant après revalidation:
+             * restauration complète de l'ancien owner, y compris
+             * Claim Group + home + warps protégés.
+             */
             if (oldOwner != null) {
-                oldOwner.removeClaim(location);
-                plugin.getStorageManager().markDirty(oldOwner);
+                oldOwner.addClaim(location);
+
+                if (oldClaimGroupId != null) {
+                    oldOwner.restoreClaimGroupAssignment(
+                            location,
+                            oldClaimGroupId
+                    );
+                }
+
+                if (oldHome != null) {
+                    oldOwner.restoreHome(
+                            oldHome
+                    );
+                }
+
+                for (FactionWarp warp
+                        : oldWarps.values()) {
+                    oldOwner.restoreWarp(warp);
+                }
+            }
+
+            throw new IllegalStateException(
+                    "New owner already contains "
+                            + location.getKey()
+            );
+        }
+
+        claimIndex.put(
+                location,
+                newOwner.getId()
+        );
+
+        if (oldOwner != null) {
+            plugin.getStorageManager()
+                    .markDirty(oldOwner);
+        }
+
+        plugin.getStorageManager()
+                .markDirty(newOwner);
+    }
+
+    // ============================================================
+    // Unclaim
+    // ============================================================
+
+    public boolean unclaim(
+            Faction faction,
+            FLocation location
+    ) {
+        OperationResult<UnclaimBatchResult> result =
+                unclaimService.unclaimSingle(
+                        null,
+                        faction,
+                        location,
+                        OperationContext.system()
+                );
+
+        return result.isSuccess();
+    }
+
+    /**
+     * Commit bas niveau réservé à UnclaimService V2.
+     *
+     * Aucun home/warp n'est supprimé ici: ces side-effects sont appliqués
+     * uniquement après réussite de tout le batch.
+     */
+    public void commitPlannedUnclaim(
+            Faction owner,
+            FLocation location
+    ) {
+        if (owner == null
+                || owner.isSystemFaction()
+                || location == null) {
+            throw new IllegalArgumentException(
+                    "Invalid planned unclaim"
+            );
+        }
+
+        String ownerId =
+                claimIndex.get(location);
+
+        if (!owner.getId()
+                .equals(ownerId)
+                || !owner.hasClaim(location)) {
+            throw new IllegalStateException(
+                    "Unclaim owner changed for "
+                            + location.getKey()
+            );
+        }
+
+        if (!claimIndex.remove(
+                location,
+                owner.getId()
+        )) {
+            throw new IllegalStateException(
+                    "Unable to remove claim index for "
+                            + location.getKey()
+            );
+        }
+
+        if (!owner.removeClaim(location)) {
+            claimIndex.put(
+                    location,
+                    owner.getId()
+            );
+
+            throw new IllegalStateException(
+                    "Unable to remove faction claim for "
+                            + location.getKey()
+            );
+        }
+    }
+
+    /**
+     * Rollback interne d'un commit d'unclaim partiellement appliqué.
+     */
+    public void rollbackPlannedUnclaim(
+            Faction owner,
+            FLocation location,
+            String claimGroupId
+    ) {
+        if (owner == null
+                || owner.isSystemFaction()
+                || location == null) {
+            throw new IllegalArgumentException(
+                    "Invalid unclaim rollback"
+            );
+        }
+
+        String indexed =
+                claimIndex.get(location);
+
+        if (indexed != null
+                && !owner.getId()
+                        .equals(indexed)) {
+            throw new IllegalStateException(
+                    "Rollback conflict at "
+                            + location.getKey()
+                            + " owner="
+                            + indexed
+            );
+        }
+
+        if (!owner.hasClaim(location)) {
+            if (!owner.addClaim(location)) {
+                throw new IllegalStateException(
+                        "Unable to restore faction claim "
+                                + location.getKey()
+                );
             }
         }
-        
-        // Ajouter au nouveau propriétaire
-        claimIndex.put(location, faction.getId());
-        faction.addClaim(location);
-        plugin.getStorageManager().markDirty(faction);
+
+        claimIndex.put(
+                location,
+                owner.getId()
+        );
+
+        if (claimGroupId != null
+                && !owner.restoreClaimGroupAssignment(
+                        location,
+                        claimGroupId
+                )) {
+            throw new IllegalStateException(
+                    "Unable to restore Claim Group assignment "
+                            + claimGroupId
+                            + " for "
+                            + location.getKey()
+            );
+        }
     }
-    
-    /**
-     * Retire le claim d'un chunk
-     * @param faction La faction propriétaire
-     * @param location La FLocation
-     * @return true si unclaim réussi
-     */
-    public boolean unclaim(Faction faction, FLocation location) {
-        String ownerId = claimIndex.get(location);
-        if (ownerId == null || !ownerId.equals(faction.getId())) {
+
+    private void checkAndRemoveHomeInChunk(
+            Faction faction,
+            FLocation chunkLocation
+    ) {
+        if (!faction.hasHome()) {
+            return;
+        }
+
+        StoredLocation home =
+                faction.getStoredHome();
+
+        if (home == null
+                || !home.isInChunk(
+                        chunkLocation
+                )) {
+            return;
+        }
+
+        faction.restoreHome(null);
+
+        for (Player player
+                : faction.getOnlinePlayers()) {
+            plugin.getMessageManager()
+                    .send(
+                            player,
+                            "home.removed-unclaim"
+                    );
+        }
+    }
+
+    private void checkAndRemoveWarpsInChunk(
+            Faction faction,
+            FLocation chunkLocation
+    ) {
+        List<String> toRemove =
+                new ArrayList<String>();
+
+        for (Map.Entry<String, FactionWarp> entry
+                : faction.getWarpDataSnapshot()
+                        .entrySet()) {
+            if (entry.getValue() == null
+                    || entry.getValue()
+                            .getStoredLocation() == null) {
+                continue;
+            }
+
+            if (entry.getValue()
+                    .getStoredLocation()
+                    .isInChunk(
+                            chunkLocation
+                    )) {
+                toRemove.add(
+                        entry.getKey()
+                );
+            }
+        }
+
+        for (String warpName : toRemove) {
+            faction.removeWarp(warpName);
+
+            for (Player player
+                    : faction.getOnlinePlayers()) {
+                plugin.getMessageManager()
+                        .send(
+                                player,
+                                "warp.removed-unclaim",
+                                "{name}",
+                                warpName
+                        );
+            }
+        }
+    }
+
+    public void unclaimAll(
+            Faction faction
+    ) {
+        if (faction == null
+                || faction.isSystemFaction()) {
+            return;
+        }
+
+        unclaimService.unclaimAll(
+                null,
+                faction,
+                OperationContext.system()
+        );
+    }
+
+    public boolean unclaim(
+            FLocation location
+    ) {
+        if (location == null) {
             return false;
         }
-        
-        claimIndex.remove(location);
-        faction.removeClaim(location);
-        
-        // Check and remove home if in this chunk
-        checkAndRemoveHomeInChunk(faction, location);
-        
-        // Check and remove warps in this chunk
-        checkAndRemoveWarpsInChunk(faction, location);
-        
-        plugin.getStorageManager().markDirty(faction);
-        return true;
-    }
-    
-    /**
-     * Checks if faction home is in the given chunk and removes it
-     */
-    private void checkAndRemoveHomeInChunk(Faction faction, FLocation chunkLoc) {
-        if (faction.hasHome()) {
-            Location home = faction.getHome();
-            FLocation homeFLoc = new FLocation(home);
-            if (homeFLoc.equals(chunkLoc)) {
-                faction.setHome(null);
-                // Notify online members
-                for (org.bukkit.entity.Player p : faction.getOnlinePlayers()) {
-                    plugin.getMessageManager().send(p, "home.removed-unclaim");
-                }
-            }
+
+        String zoneId =
+                zoneService.getZoneIdAt(
+                        location
+                );
+
+        if (zoneId != null) {
+            return zoneService.clearZone(
+                    location,
+                    zoneId,
+                    OperationContext.system()
+            ).isSuccess();
         }
-    }
-    
-    /**
-     * Checks and removes any warps in the given chunk
-     */
-    private void checkAndRemoveWarpsInChunk(Faction faction, FLocation chunkLoc) {
-        java.util.List<String> warpsToRemove = new java.util.ArrayList<>();
-        
-        for (java.util.Map.Entry<String, Location> entry : faction.getWarps().entrySet()) {
-            FLocation warpFLoc = new FLocation(entry.getValue());
-            if (warpFLoc.equals(chunkLoc)) {
-                warpsToRemove.add(entry.getKey());
-            }
-        }
-        
-        for (String warpName : warpsToRemove) {
-            faction.removeWarp(warpName);
-            // Notify online members
-            for (org.bukkit.entity.Player p : faction.getOnlinePlayers()) {
-                plugin.getMessageManager().send(p, "warp.removed-unclaim", "{name}", warpName);
-            }
-        }
-    }
-    
-    /**
-     * Retire tous les claims d'une faction
-     * @param faction La faction
-     */
-    public void unclaimAll(Faction faction) {
-        // Copier pour éviter ConcurrentModification
-        Set<FLocation> claims = new HashSet<>(faction.getClaims());
-        for (FLocation loc : claims) {
-            claimIndex.remove(loc);
-        }
-        faction.clearClaims();
-        plugin.getStorageManager().markDirty(faction);
-    }
-    
-    /**
-     * Retire un claim à une location (peu importe le propriétaire)
-     * @param location La FLocation
-     * @return true si unclaim réussi
-     */
-    public boolean unclaim(FLocation location) {
-        String ownerId = claimIndex.get(location);
+
+        String ownerId =
+                claimIndex.get(location);
+
         if (ownerId == null) {
             return false;
         }
-        
-        Faction owner = plugin.getFactionManager().getFaction(ownerId);
+
+        Faction owner =
+                plugin.getFactionManager()
+                        .getFaction(ownerId);
+
         if (owner != null) {
             owner.removeClaim(location);
-            plugin.getStorageManager().markDirty(owner);
-        }
-        claimIndex.remove(location);
-        return true;
-    }
-    
-    /**
-     * Claim un chunk en warzone
-     * @param location La FLocation
-     */
-    public void claimWarzone(FLocation location) {
-        unclaim(location); // Retire tout claim existant
-        Faction warzone = plugin.getFactionManager().getWarzone();
-        claimIndex.put(location, warzone.getId());
-        warzone.addClaim(location);
-    }
-    
-    /**
-     * Claim un chunk en safezone
-     * @param location La FLocation
-     */
-    public void claimSafezone(FLocation location) {
-        unclaim(location); // Retire tout claim existant
-        Faction safezone = plugin.getFactionManager().getSafezone();
-        claimIndex.put(location, safezone.getId());
-        safezone.addClaim(location);
-    }
-    
-    /**
-     * @return Nombre total de claims dans l'index
-     */
-    public int getClaimCount() {
-        return claimIndex.size();
-    }
-    
-    // === Overclaiming ===
-    
-    /**
-     * Vérifie si une faction est raidable (peut être overclaim)
-     * @param faction La faction
-     * @return true si le power total < nombre de claims
-     */
-    public boolean isRaidable(Faction faction) {
-        if (faction == null || faction.isSystemFaction()) return false;
-        double power = plugin.getPowerManager().getFactionPower(faction);
-        return faction.getClaimCount() > power;
-    }
-    
-    /**
-     * Calcule le nombre de lands pouvant être overclaim
-     * @param faction La faction
-     * @return Nombre de lands au-delà du power
-     */
-    public int getOverclaimableCount(Faction faction) {
-        if (faction == null || faction.isSystemFaction()) return 0;
-        double power = plugin.getPowerManager().getFactionPower(faction);
-        int deficit = faction.getClaimCount() - (int) power;
-        return Math.max(0, deficit);
-    }
-    
-    // === Helpers ===
-    
-    // === Admin auto-claim ===
 
-    /**
-     * Active/désactive l'auto-claim admin pour un joueur.
-     * @param uuid UUID du joueur
-     * @param type "warzone" ou "safezone"
-     * @return true si activé, false si désactivé
-     */
-    public boolean toggleAdminAutoClaim(UUID uuid, String type) {
-        adminAutoUnclaimPlayers.remove(uuid);
-        if (type.equals(adminAutoClaimPlayers.get(uuid))) {
-            adminAutoClaimPlayers.remove(uuid);
-            return false;
-        }
-        adminAutoClaimPlayers.put(uuid, type);
-        return true;
-    }
+            checkAndRemoveHomeInChunk(
+                    owner,
+                    location
+            );
 
-    public boolean isAdminAutoClaiming(UUID uuid) {
-        return adminAutoClaimPlayers.containsKey(uuid);
-    }
+            checkAndRemoveWarpsInChunk(
+                    owner,
+                    location
+            );
 
-    public String getAdminAutoClaimType(UUID uuid) {
-        return adminAutoClaimPlayers.get(uuid);
-    }
-
-    public void stopAdminAutoClaim(UUID uuid) {
-        adminAutoClaimPlayers.remove(uuid);
-    }
-
-    /** Active/désactive l'unclaim automatique d'un type de zone système. */
-    public boolean toggleAdminAutoUnclaim(UUID uuid, String type) {
-        adminAutoClaimPlayers.remove(uuid);
-        if (type.equals(adminAutoUnclaimPlayers.get(uuid))) {
-            adminAutoUnclaimPlayers.remove(uuid);
-            return false;
-        }
-        adminAutoUnclaimPlayers.put(uuid, type);
-        return true;
-    }
-
-    public boolean isAdminAutoUnclaiming(UUID uuid) {
-        return adminAutoUnclaimPlayers.containsKey(uuid);
-    }
-
-    public String getAdminAutoUnclaimType(UUID uuid) {
-        return adminAutoUnclaimPlayers.get(uuid);
-    }
-
-    public void stopAdminAutoUnclaim(UUID uuid) {
-        adminAutoUnclaimPlayers.remove(uuid);
-    }
-
-    /** Snapshot des claims appartenant exactement à la zone demandée. */
-    public List<FLocation> getZoneClaims(String type) {
-        Faction zone = "warzone".equalsIgnoreCase(type)
-            ? plugin.getFactionManager().getWarzone()
-            : "safezone".equalsIgnoreCase(type)
-                ? plugin.getFactionManager().getSafezone() : null;
-        return zone == null ? new ArrayList<>() : new ArrayList<>(zone.getClaims());
-    }
-
-    /**
-     * Unclaim sécurisé : ne retire le chunk que si son propriétaire actuel est
-     * toujours la safezone/warzone demandée.
-     */
-    public boolean unclaimZone(String type, FLocation location) {
-        String expectedId = "warzone".equalsIgnoreCase(type) ? Faction.WARZONE_ID
-            : "safezone".equalsIgnoreCase(type) ? Faction.SAFEZONE_ID : null;
-        if (expectedId == null || !expectedId.equals(claimIndex.get(location))) {
-            return false;
-        }
-        return unclaim(location);
-    }
-
-    public int unclaimZone(String type, Collection<FLocation> locations) {
-        int count = 0;
-        for (FLocation location : locations) {
-            if (unclaimZone(type, location)) {
-                count++;
+            if (!owner.isSystemFaction()) {
+                plugin.getStorageManager()
+                        .markDirty(owner);
             }
         }
-        return count;
+
+        claimIndex.remove(location);
+
+        return true;
     }
 
     /**
-     * Vérifie si un chunk est adjacent à un claim de faction
-     * @param location La FLocation à vérifier
-     * @param faction La faction
-     * @return true si adjacent
+     * Retire un éventuel claim joueur avant création d'une zone globale.
+     *
+     * Ne touche jamais ZoneService afin d'éviter toute récursion.
      */
-    public boolean isAdjacentToFaction(FLocation location, Faction faction) {
-        for (FLocation adjacent : location.getAdjacent()) {
-            if (faction.hasClaim(adjacent)) {
+    public boolean removePlayerClaimForZone(
+            FLocation location
+    ) {
+        if (location == null) {
+            return false;
+        }
+
+        String ownerId =
+                claimIndex.get(location);
+
+        if (ownerId == null) {
+            return false;
+        }
+
+        Faction owner =
+                plugin.getFactionManager()
+                        .getFaction(ownerId);
+
+        if (owner == null
+                || owner.isSystemFaction()) {
+            claimIndex.remove(location);
+            return false;
+        }
+
+        owner.removeClaim(location);
+
+        checkAndRemoveHomeInChunk(
+                owner,
+                location
+        );
+
+        checkAndRemoveWarpsInChunk(
+                owner,
+                location
+        );
+
+        claimIndex.remove(
+                location,
+                ownerId
+        );
+
+        plugin.getStorageManager()
+                .markDirty(owner);
+
+        return true;
+    }
+
+    // ============================================================
+    // Zones système / admin
+    // ============================================================
+
+    public void claimWarzone(
+            FLocation location
+    ) {
+        zoneService.setZone(
+                location,
+                GlobalZoneType.WARZONE,
+                OperationContext.system()
+        );
+    }
+
+    public void claimSafezone(
+            FLocation location
+    ) {
+        zoneService.setZone(
+                location,
+                GlobalZoneType.SAFEZONE,
+                OperationContext.system()
+        );
+    }
+
+    public int getClaimCount() {
+        return claimIndex.size()
+                + zoneService.getTotalZoneChunks();
+    }
+
+    // ============================================================
+    // Overclaim / limits
+    // ============================================================
+
+    public boolean isRaidable(
+            Faction faction
+    ) {
+        if (faction == null
+                || faction.isSystemFaction()) {
+            return false;
+        }
+
+        if (plugin.getPermissionManager() != null
+                && plugin.getPermissionManager()
+                        .getGraceService()
+                        .blocksRaids()) {
+            return false;
+        }
+
+        double power =
+                plugin.getPowerManager()
+                        .getFactionPower(
+                                faction
+                        );
+
+        return faction.getClaimCount()
+                > power;
+    }
+
+    public int getOverclaimableCount(
+            Faction faction
+    ) {
+        if (faction == null
+                || faction.isSystemFaction()) {
+            return 0;
+        }
+
+        if (plugin.getPermissionManager() != null
+                && plugin.getPermissionManager()
+                        .getGraceService()
+                        .blocksRaids()) {
+            return 0;
+        }
+
+        double power =
+                plugin.getPowerManager()
+                        .getFactionPower(
+                                faction
+                        );
+
+        int deficit =
+                faction.getClaimCount()
+                        - (int) power;
+
+        return Math.max(
+                0,
+                deficit
+        );
+    }
+
+    public int getMaxClaims(
+            Faction faction
+    ) {
+        if (faction == null
+                || faction.isSystemFaction()) {
+            return 0;
+        }
+
+        boolean limitByPower =
+                plugin.getConfigManager()
+                        .getBoolean(
+                                "claims.limit-by-power",
+                                true
+                        );
+
+        int configuredMax =
+                plugin.getConfigManager()
+                        .getInt(
+                                "claims.max-per-faction",
+                                -1
+                        );
+
+        if (!limitByPower) {
+            return configuredMax > 0
+                    ? configuredMax
+                    : Integer.MAX_VALUE;
+        }
+
+        int powerMax =
+                Math.max(
+                        0,
+                        (int) Math.floor(
+                                plugin.getPowerManager()
+                                        .getFactionPower(
+                                                faction
+                                        )
+                        )
+                );
+
+        if (configuredMax > 0) {
+            return Math.min(
+                    powerMax,
+                    configuredMax
+            );
+        }
+
+        return powerMax;
+    }
+
+    public boolean isAdjacentToFaction(
+            FLocation location,
+            Faction faction
+    ) {
+        if (location == null
+                || faction == null) {
+            return false;
+        }
+
+        for (FLocation adjacent
+                : location.getAdjacent()) {
+            if (faction.hasClaim(
+                    adjacent
+            )) {
                 return true;
             }
         }
+
         return false;
     }
-    
-    /**
-     * Calcule le nombre maximum de claims pour une faction
-     * @param faction La faction
-     * @return Le maximum de claims
-     */
-    public int getMaxClaims(Faction faction) {
-        // Base: power total de la faction
-        return (int) plugin.getPowerManager().getFactionPower(faction);
+
+    // ============================================================
+    // Admin auto modes
+    // ============================================================
+
+    public boolean toggleAdminAutoClaim(
+            UUID uuid,
+            String type
+    ) {
+        String normalized =
+                ZoneDefinition.normalizeId(
+                        type
+                );
+
+        if (uuid == null
+                || normalized == null
+                || !zoneService.hasDefinition(
+                        normalized
+                )) {
+            return false;
+        }
+
+        adminAutoUnclaimPlayers.remove(uuid);
+
+        if (normalized.equals(
+                adminAutoClaimPlayers.get(
+                        uuid
+                )
+        )) {
+            adminAutoClaimPlayers.remove(uuid);
+            return false;
+        }
+
+        adminAutoClaimPlayers.put(
+                uuid,
+                normalized
+        );
+
+        return true;
     }
-    
-    /**
-     * Compte tous les claims dans un monde
-     * @param worldName Nom du monde
-     * @return Nombre de claims
-     */
-    public int getClaimsInWorld(String worldName) {
+
+    public boolean isAdminAutoClaiming(
+            UUID uuid
+    ) {
+        return adminAutoClaimPlayers
+                .containsKey(uuid);
+    }
+
+    public String getAdminAutoClaimType(
+            UUID uuid
+    ) {
+        return adminAutoClaimPlayers
+                .get(uuid);
+    }
+
+    public void stopAdminAutoClaim(
+            UUID uuid
+    ) {
+        adminAutoClaimPlayers.remove(uuid);
+    }
+
+    public boolean toggleAdminAutoUnclaim(
+            UUID uuid,
+            String type
+    ) {
+        String normalized =
+                ZoneDefinition.normalizeId(
+                        type
+                );
+
+        if (uuid == null
+                || normalized == null
+                || !zoneService.isKnownOrAssignedZoneId(
+                        normalized
+                )) {
+            return false;
+        }
+
+        adminAutoClaimPlayers.remove(uuid);
+
+        if (normalized.equals(
+                adminAutoUnclaimPlayers.get(
+                        uuid
+                )
+        )) {
+            adminAutoUnclaimPlayers.remove(
+                    uuid
+            );
+            return false;
+        }
+
+        adminAutoUnclaimPlayers.put(
+                uuid,
+                normalized
+        );
+
+        return true;
+    }
+
+    public boolean isAdminAutoUnclaiming(
+            UUID uuid
+    ) {
+        return adminAutoUnclaimPlayers
+                .containsKey(uuid);
+    }
+
+    public String getAdminAutoUnclaimType(
+            UUID uuid
+    ) {
+        return adminAutoUnclaimPlayers
+                .get(uuid);
+    }
+
+    public void stopAdminAutoUnclaim(
+            UUID uuid
+    ) {
+        adminAutoUnclaimPlayers.remove(uuid);
+    }
+
+    public List<FLocation> getZoneClaims(
+            String type
+    ) {
+        String zoneId =
+                ZoneDefinition.normalizeId(
+                        type
+                );
+
+        return zoneId == null
+                ? new ArrayList<FLocation>()
+                : new ArrayList<FLocation>(
+                        zoneService.getLocations(
+                                zoneId
+                        )
+                );
+    }
+
+    public boolean unclaimZone(
+            String type,
+            FLocation location
+    ) {
+        String zoneId =
+                ZoneDefinition.normalizeId(
+                        type
+                );
+
+        if (zoneId == null) {
+            return false;
+        }
+
+        OperationResult<String> result =
+                zoneService.clearZone(
+                        location,
+                        zoneId,
+                        OperationContext.system()
+                );
+
+        return result.isSuccess();
+    }
+
+    public int unclaimZone(
+            String type,
+            Collection<FLocation> locations
+    ) {
         int count = 0;
-        for (FLocation loc : claimIndex.keySet()) {
-            if (loc.getWorldName().equals(worldName)) {
+
+        if (locations == null) {
+            return count;
+        }
+
+        for (FLocation location : locations) {
+            if (unclaimZone(
+                    type,
+                    location
+            )) {
                 count++;
             }
         }
+
         return count;
     }
-    
-    // === Chargement index ===
-    
-    /**
-     * Enregistre un claim dans l'index (utilisé lors du chargement)
-     * @param location La FLocation
-     * @param factionId ID de la faction
-     */
-    public void registerClaim(FLocation location, String factionId) {
-        if (location != null && factionId != null) {
-            claimIndex.put(location, factionId);
-        }
-    }
-    
-    /**
-     * Reconstruit l'index à partir des factions
-     */
-    public void rebuildIndex() {
-        claimIndex.clear();
-        for (Faction faction : plugin.getFactionManager().getAllFactions()) {
-            for (FLocation loc : faction.getClaims()) {
-                claimIndex.put(loc, faction.getId());
+
+    // ============================================================
+    // Index / diagnostics
+    // ============================================================
+
+    public int getClaimsInWorld(
+            String worldName
+    ) {
+        int count = 0;
+
+        for (FLocation location
+                : claimIndex.keySet()) {
+            if (location.getWorldName()
+                    .equals(worldName)) {
+                count++;
             }
         }
-        plugin.getLogger().info("Index de claims reconstruit: " + claimIndex.size() + " claims");
+
+        return count;
     }
-    
-    /**
-     * @return Nombre total de claims
-     */
+
+    public void registerClaim(
+            FLocation location,
+            String factionId
+    ) {
+        if (location != null
+                && factionId != null) {
+            claimIndex.put(
+                    location,
+                    factionId
+            );
+        }
+    }
+
+    public void rebuildIndex() {
+        rebuildClaimIndex();
+    }
+
     public int getTotalClaims() {
         return claimIndex.size();
     }
-    
-    // === Relations territoriales ===
-    
-    /**
-     * Obtient la relation entre un joueur et le territoire où il se trouve
-     * @param player Le joueur
-     * @return La relation
-     */
-    public Relation getPlayerRelationToLocation(Player player) {
-        Faction factionAt = getFactionAt(player.getLocation());
-        Faction playerFaction = plugin.getFactionManager().getPlayerFaction(player);
-        
+
+    public Relation getPlayerRelationToLocation(
+            Player player
+    ) {
+        Faction factionAt =
+                getFactionAt(
+                        player.getLocation()
+                );
+
+        Faction playerFaction =
+                plugin.getFactionManager()
+                        .getPlayerFaction(
+                                player
+                        );
+
         if (playerFaction == null) {
             return Relation.NEUTRAL;
         }
-        
-        return playerFaction.getRelationTo(factionAt);
+
+        return playerFaction.getRelationTo(
+                factionAt
+        );
     }
-    
-    /**
-     * Résultats possibles d'une opération de claim
-     */
+
+    // ============================================================
+    // Legacy result
+    // ============================================================
+
     public static class ClaimResult {
-        public static final ClaimResult SUCCESS = new ClaimResult(true, "Claim réussi");
-        public static final ClaimResult ALREADY_OWNED = new ClaimResult(false, "Vous possédez déjà ce chunk");
-        public static final ClaimResult OWNED_BY_OTHER = new ClaimResult(false, "Ce chunk appartient à une autre faction");
-        public static final ClaimResult LIMIT_REACHED = new ClaimResult(false, "Limite de claims atteinte (power insuffisant)");
-        public static final ClaimResult NOT_CONNECTED = new ClaimResult(false, "Le claim doit être connecté à votre territoire");
-        public static final ClaimResult TOO_CLOSE_TO_SPAWN = new ClaimResult(false, "Trop proche du spawn");
-        public static final ClaimResult NO_PERMISSION = new ClaimResult(false, "Vous n'avez pas la permission");
-        public static final ClaimResult WORLD_DISABLED = new ClaimResult(false, "Les claims sont désactivés dans ce monde");
-        public static final ClaimResult CANCELLED = new ClaimResult(false, "Claim annulé");
-        
+
+        public static final ClaimResult SUCCESS =
+                new ClaimResult(
+                        true,
+                        "Claim réussi"
+                );
+
+        public static final ClaimResult ALREADY_OWNED =
+                new ClaimResult(
+                        false,
+                        "Vous possédez déjà ce chunk"
+                );
+
+        public static final ClaimResult OWNED_BY_OTHER =
+                new ClaimResult(
+                        false,
+                        "Ce chunk appartient à une autre faction"
+                );
+
+        public static final ClaimResult LIMIT_REACHED =
+                new ClaimResult(
+                        false,
+                        "Limite de claims atteinte (power insuffisant)"
+                );
+
+        public static final ClaimResult NOT_CONNECTED =
+                new ClaimResult(
+                        false,
+                        "Le claim doit être connecté à votre territoire"
+                );
+
+        public static final ClaimResult TOO_CLOSE_TO_SPAWN =
+                new ClaimResult(
+                        false,
+                        "Trop proche du spawn"
+                );
+
+        public static final ClaimResult NO_PERMISSION =
+                new ClaimResult(
+                        false,
+                        "Vous n'avez pas la permission"
+                );
+
+        public static final ClaimResult WORLD_DISABLED =
+                new ClaimResult(
+                        false,
+                        "Les claims sont désactivés dans ce monde"
+                );
+
+        public static final ClaimResult CANCELLED =
+                new ClaimResult(
+                        false,
+                        "Claim annulé"
+                );
+
         private final boolean success;
         private final String message;
-        
-        public ClaimResult(boolean success, String message) {
+
+        public ClaimResult(
+                boolean success,
+                String message
+        ) {
             this.success = success;
             this.message = message;
         }
-        
+
         public String getMessage() {
             return message;
         }
-        
+
         public boolean isSuccess() {
             return success;
         }
+
+        private static ClaimResult from(
+                OperationResult<ClaimBatchResult> result
+        ) {
+            if (result == null) {
+                return new ClaimResult(
+                        false,
+                        "Résultat de claim absent"
+                );
+            }
+
+            if (result.isSuccess()) {
+                return SUCCESS;
+            }
+
+            if (result.getStatus()
+                    == OperationResult.Status.NO_CHANGE) {
+                return ALREADY_OWNED;
+            }
+
+            if (result.getStatus()
+                    == OperationResult.Status.CANCELLED) {
+                return new ClaimResult(
+                        false,
+                        result.hasDetail()
+                                ? result.getDetail()
+                                : CANCELLED.getMessage()
+                );
+            }
+
+            if (result.getStatus()
+                    == OperationResult.Status.LIMIT_REACHED) {
+                return new ClaimResult(
+                        false,
+                        result.hasDetail()
+                                ? result.getDetail()
+                                : LIMIT_REACHED.getMessage()
+                );
+            }
+
+            if (result.getStatus()
+                    == OperationResult.Status.FORBIDDEN) {
+                return new ClaimResult(
+                        false,
+                        result.hasDetail()
+                                ? result.getDetail()
+                                : NO_PERMISSION.getMessage()
+                );
+            }
+
+            return new ClaimResult(
+                    false,
+                    result.hasDetail()
+                            ? result.getDetail()
+                            : "Échec du claim"
+            );
+        }
     }
-    
-    /**
-     * Affiche la carte de la zone autour d'une position
-     * @param player Le joueur à qui envoyer la carte
-     * @param location La position centrale
-     */
-    public void showMap(Player player, FLocation location) {
-        // TODO: Implémenter l'affichage complet de la carte
-        player.sendMessage("§6[§eMap§6] §7Position: " + location.getX() + ", " + location.getZ());
-        Faction factionAt = getFactionAt(location);
-        player.sendMessage("§6[§eMap§6] §7Zone: " + factionAt.getName());
+
+    public void showMap(
+            Player player,
+            FLocation location
+    ) {
+        player.sendMessage(
+                "§6[§eMap§6] §7Position: "
+                        + location.getX()
+                        + ", "
+                        + location.getZ()
+        );
+
+        Faction factionAt =
+                getFactionAt(location);
+
+        player.sendMessage(
+                "§6[§eMap§6] §7Zone: "
+                        + factionAt.getName()
+        );
     }
 }

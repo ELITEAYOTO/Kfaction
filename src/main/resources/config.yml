@@ -1,46 +1,217 @@
 # ============================================================
-# Kfaction - Configuration principale
-# Plugin Factions moderne - Écosystème K
+# Kfaction V2 - Configuration principale complète
+# Minecraft / Spigot 1.8.8 - Java 8
+# ============================================================
+#
+# CONSEILS:
+# - Modifie les valeurs, pas les noms de clés.
+# - Fais toujours un backup avant un gros changement.
+# - Après modification importante:
+#     /kf doctor full
+#     /kf doctor indexes full
+#     /kf doctor progression full
+#
+# IMPORTANT STORAGE V2:
+# - SQLITE est le backend recommandé et par défaut.
+# - FLATFILE existe uniquement comme backend legacy/rollback/debug.
+# - MYSQL n'est PAS implémenté dans la V2 actuelle.
+# - Kfaction ne fallback pas silencieusement de SQLite vers JSON.
+#
+# Lot25D CONFIG CLEANUP:
+# - les clés sans lecteur runtime ont été retirées au lieu de laisser croire
+#   qu'elles pilotent une fonctionnalité inexistante.
+# - les options legacy encore réellement lues restent explicitement commentées.
+#
+# IMPORTANT PROGRESSION:
+# - Les niveaux/quêtes/récompenses V2 ne sont PAS définis ici.
+# - Leur source de vérité est plugins/Kfaction/progression.yml.
 # ============================================================
 
-# Version de la configuration (ne pas modifier)
-config-version: 1
+# Version documentaire du fichier principal.
+# Cette valeur n'est pas le schema du stockage.
+config-version: 2
 
-# Mode debug (affiche des logs supplémentaires)
+# Active davantage de logs console.
+# Laisse false en production sauf diagnostic ponctuel.
 debug: false
 
-# Intervalle de sauvegarde automatique (en secondes)
-# Par défaut: 300 (5 minutes)
-auto-save-interval: 300
+# ============================================================
+# CONSOLE / LOGGING
+# ============================================================
+#
+# La console normale doit rester compacte.
+# Les détails managers/hooks/timings sont réservés à debug: true.
+#
+console:
+
+  colors:
+
+    # ANSI est supporté par PandaSpigot/Log4j2.
+    # Désactive si ton terminal affiche les séquences brutes.
+    enabled: true
+
+  symbols:
+
+    # ✔ ⚠ ✖ ↻
+    enabled: true
+
+  startup:
+
+    # true = résumé court de démarrage.
+    compact: true
+
+    # Les détails supplémentaires restent de toute façon conditionnés
+    # par debug: true.
+    show-timings-in-debug: true
+
 
 # ============================================================
-# STORAGE
+# INTERFACE PROGRESSION
+# ============================================================
+#
+# Le GAMEPLAY progression est intégralement dans progression.yml.
+# Cette section ne contient que de la présentation générique du plugin.
+#
+progression-ui:
+
+  progress-bar:
+
+    # Bornes appliquées par LevelManager: 5 -> 60.
+    length: 20
+
+    filled: "▌"
+    empty: "▌"
+
+    filled-color: "&a"
+    empty-color: "&7"
+
+
+# ============================================================
+# COFFRE DE FACTION
+# ============================================================
+#
+# Ce réglage vivait historiquement dans levels.yml.
+#
+faction-chest:
+
+  # true = sauvegarder le contenu lors de la fermeture du dernier viewer.
+  save-on-close: true
+
+
+# ============================================================
+# FLY DE FACTION
+# ============================================================
+#
+# Ces réglages vivaient historiquement dans levels.yml.
+#
+fly:
+
+  disable-in-combat: true
+  disable-out-territory: true
+
+  prevent-fall-damage: true
+
+  # Ticks de protection après désactivation en plein vol.
+  fall-protection-ticks: 60
+
+  # Multiplicateur de la vitesse vanilla.
+  # 1.0 = vitesse normale.
+  speed: 1.0
+
+
+# ============================================================
+# ANTI-SETHOME
+# ============================================================
+#
+# Ces réglages vivaient historiquement dans levels.yml.
+#
+anti-sethome:
+
+  block-enemies: true
+  block-neutrals: false
+
+
+# ============================================================
+# STORAGE V2
 # ============================================================
 storage:
-  # Type: FLATFILE (JSON) ou MYSQL
-  type: FLATFILE
-  
-  # Configuration MySQL (si type: MYSQL)
-  mysql:
-    host: localhost
-    port: 3306
-    database: kfaction
-    username: root
-    password: ""
-    # Pool de connexions
-    pool-size: 10
+
+  # Valeurs supportées:
+  # SQLITE   = recommandé, source de vérité unique.
+  # FLATFILE = ancien JSON, uniquement rollback/debug.
+  #
+  # MYSQL n'est PAS supporté dans la V2 actuelle.
+  type: SQLITE
+
+  # Intervalle de capture/flush des entités dirty, en secondes.
+  # L'I/O disque est faite par le writer dédié et non par Bukkit main thread.
+  auto-save-interval: 300
+
+  # ----------------------------------------------------------
+  # SQLite
+  # ----------------------------------------------------------
+  sqlite:
+
+    # Nom du fichier dans plugins/Kfaction/.
+    # N'utilise pas un chemin absolu.
+    file: "kfaction.db"
+
+    # Temps maximum pendant lequel SQLite attend un verrou.
+    busy-timeout-ms: 5000
+
+    # NORMAL recommandé avec WAL.
+    # FULL = plus de garanties disque mais plus d'I/O.
+    synchronous: NORMAL
+
+    # Lors de la première initialisation SQLite:
+    # importer les anciens JSON seulement si les tables sont vides.
+    #
+    # La migration est transactionnelle:
+    # si un élément source est invalide, la migration doit échouer en bloc.
+    migrate-flatfile: true
+
+    # Crée un backup cohérent avant les opérations sensibles.
+    backup-on-startup: true
+
+    # Nombre de backups conservés.
+    backup-keep: 5
+
+  # ----------------------------------------------------------
+  # Writer borné - Lot 23
+  # ----------------------------------------------------------
+  writer:
+
+    # Nombre maximal de tâches EN ATTENTE.
+    # Bornes code: 16 -> 4096.
+    #
+    # Une saturation n'exécute jamais l'I/O via CallerRuns sur le main thread.
+    queue-capacity: 256
+
+    # Pendant le shutdown uniquement, durée max pour attendre une place
+    # dans la queue bornée afin de confirmer le save/delete final.
+    # Bornes code: 1 -> 30 secondes.
+    shutdown-enqueue-timeout-seconds: 10
+
 
 # ============================================================
 # FACTIONS
 # ============================================================
 factions:
-  # Création
+
+  # ----------------------------------------------------------
+  # Nom
+  # ----------------------------------------------------------
   name:
     min-length: 3
     max-length: 16
-    # Regex pour les noms valides (alphanumérique + underscore)
+
+    # Regex principale.
     regex: "^[a-zA-Z0-9_]+$"
-    # Mots interdits (insensible à la casse)
+
+    # Alias de migration accepté par certains chemins V2.
+    # Le moteur privilégie regex si présent.
+    pattern: "^[a-zA-Z0-9_]+$"
+
     blocked-words:
       - admin
       - modo
@@ -48,358 +219,1046 @@ factions:
       - warzone
       - safezone
       - wilderness
-  
+
+  # ----------------------------------------------------------
   # Membres
+  # ----------------------------------------------------------
   members:
+
+    # Chemin CANONIQUE V2.
+    # progression.yml.member-tiers doit couvrir cette valeur.
     max-per-faction: 50
-    
-  # Faction ouverte (rejoint sans invite)
-  open:
-    default: false
-    
-  # Explosions dans les territoires de faction
-  explosions: true
+
+  # ----------------------------------------------------------
+  # Création
+  # ----------------------------------------------------------
+  create:
+
+    # Broadcast global après /f create.
+    broadcast: true
+
+  # ----------------------------------------------------------
+  # Invitations
+  # ----------------------------------------------------------
+  # Durée de validité d'une invitation en secondes.
+  invite-expiration: 300
+
 
 # ============================================================
 # POWER
 # ============================================================
 power:
-  # Valeurs
+
   min: -10.0
   max: 10.0
   start: 10.0
-  
-  # Perte à la mort
+
+  # Power gagné par le tueur lors d'un kill joueur.
+  per-kill: 1.0
+
+  # Power perdu à la mort.
   loss-per-death: 2.0
-  
-  # Régénération
+
+  # Régénération.
   regen-per-minute: 0.1
-  # Multiplicateur si dans son territoire (1.0 = désactivé, évite l'AFK farm)
-  regen-territory-multiplier: 1.0
-  
-  # Inactivité
-  loss-per-day-inactive: 1.0
-  
-  # Bonus par permission (kfaction.power.bonus.<key>)
-  # N'affecte pas les boosts de faction ni les récompenses de niveau.
+
+  # false recommandé:
+  # seuls les profils actuellement en ligne régénèrent automatiquement.
+  offline-regen: false
+
+  # Bonus de power max via permissions Bukkit:
+  # kfaction.power.bonus.vip
+  # kfaction.power.bonus.mvp
+  # kfaction.power.bonus.legend
   bonus:
     enabled: true
     vip: 2.0
     mvp: 5.0
     legend: 10.0
 
+
 # ============================================================
-# CLAIMS
+# CLAIMS V2
 # ============================================================
 claims:
-  # Mondes autorisés (vide = tous)
+
+  # Liste vide = tous les mondes sont autorisés,
+  # sauf ceux de denied-worlds.
   allowed-worlds: []
-  
-  # Mondes interdits
+
   denied-worlds:
     - world_nether
     - world_the_end
-    
-  # Limite de claims = power max de la faction
-  # (désactiver pour permettre plus de claims)
+
+  # Si true, la limite dépend du power disponible.
   limit-by-power: true
-  
-  # Obliger les claims à être adjacents aux claims existants
-  # false = les joueurs peuvent claim n'importe où sur la map
+
+  # Limite absolue optionnelle supplémentaire.
+  # -1 = aucune limite absolue supplémentaire.
+  max-per-faction: -1
+
+  # Si true, un nouveau claim doit être connecté à un claim existant.
   require-connected: false
 
-# ============================================================
-# WARPS
-# ============================================================
-warps:
-  # Nombre maximum de warps par faction (1 par défaut, upgradeable plus tard)
-  max-per-faction: 1
-  
-  # Longueur max du nom
-  max-name-length: 16
+  # Distance minimale du spawn en CHUNKS.
+  # 0 = désactivé.
+  min-distance-spawn: 0
+
+  # ----------------------------------------------------------
+  # /f claim <rayon>
+  # ----------------------------------------------------------
+  # Sémantique:
+  # 1 = chunk courant
+  # 2 = 3x3
+  # 3 = 5x5
+  # etc.
+  radius:
+    max: 10
+
+  # Garde-fou commun aux gros batches claim.
+  batch:
+    max-chunks: 400
+
+  # ----------------------------------------------------------
+  # /f claim fill
+  # ----------------------------------------------------------
+  fill:
+    enabled: true
+
+    # Taille max d'une poche BFS.
+    # Dépasser cette taille refuse l'opération sans mutation partielle.
+    max-chunks: 256
+
+  # ----------------------------------------------------------
+  # Unclaim atomique
+  # ----------------------------------------------------------
+  unclaim:
+
+    radius:
+      max: 10
+
+    # À partir de ce rayon inclus, demander confirmation.
+    confirm-from-radius: 3
+
+    # Validité d'une confirmation en secondes.
+    confirm-timeout-seconds: 30
+
+    # Garde-fou /f unclaimall / gros batches.
+    max-batch-chunks: 50000
+
 
 # ============================================================
-# TERRITORY PROTECTION
+# CLAIM GROUPS V2
+# ============================================================
+claim-groups:
+
+  # Nombre max de groupes ACL par faction.
+  max-per-faction: 16
+
+  # Longueur max de l'ID interne.
+  # Format: a-z, 0-9, _ et -
+  id-max-length: 16
+
+
+# ============================================================
+# PERMISSION ENGINE V2
+# ============================================================
+#
+# Ces defaults sont appliqués:
+# - aux NOUVELLES factions;
+# - lors d'un reset explicite des permissions.
+#
+# Une faction déjà persistée conserve ses ACL personnalisées.
+#
+# LEADER:
+# aucune liste nécessaire: le moteur lui accorde tous les droits.
+#
+permissions:
+  defaults:
+
+    roles:
+
+      RECRUIT:
+        capabilities:
+          - USE_HOME
+          - USE_WARP
+        territory-actions:
+          - CONTAINER_OPEN
+
+      MEMBER:
+        capabilities:
+          - USE_HOME
+          - USE_WARP
+          - DEPOSIT_MONEY
+        territory-actions:
+          - BLOCK_PLACE
+          - BLOCK_BREAK
+          - SWITCH
+          - CONTAINER_OPEN
+
+      OFFICER:
+        capabilities:
+          - USE_HOME
+          - USE_WARP
+          - DEPOSIT_MONEY
+          - INVITE
+          - CLAIM
+          - AUTO_CLAIM
+        territory-actions:
+          - BLOCK_PLACE
+          - BLOCK_BREAK
+          - SWITCH
+          - CONTAINER_OPEN
+
+      MODERATOR:
+        capabilities:
+          - USE_HOME
+          - USE_WARP
+          - DEPOSIT_MONEY
+          - INVITE
+          - CLAIM
+          - AUTO_CLAIM
+          - KICK
+          - SET_HOME
+          - SET_WARP
+          - DELETE_WARP
+        territory-actions:
+          - BLOCK_PLACE
+          - BLOCK_BREAK
+          - SWITCH
+          - CONTAINER_OPEN
+          - SPAWNER_INTERACT
+          - TNT_PLACE
+          - TNT_IGNITE
+
+      COLEADER:
+        capabilities:
+          - USE_HOME
+          - USE_WARP
+          - DEPOSIT_MONEY
+          - INVITE
+          - CLAIM
+          - AUTO_CLAIM
+          - KICK
+          - SET_HOME
+          - SET_WARP
+          - DELETE_WARP
+          - UNCLAIM
+          - PROMOTE
+          - DEMOTE
+          - WITHDRAW_MONEY
+          - RELATION_ALLY
+          - RELATION_ENEMY
+          - RELATION_TRUCE
+          - RELATION_NEUTRAL
+          - RENAME
+          - EDIT_DESCRIPTION
+          - EDIT_TAG
+          - EDIT_PERMISSIONS
+          - VIEW_LOGS
+          - FACTION_CHEST
+          - FLY
+          - MANAGE_CLAIM_GROUPS
+        territory-actions:
+          - BLOCK_PLACE
+          - BLOCK_BREAK
+          - SWITCH
+          - CONTAINER_OPEN
+          - SPAWNER_PLACE
+          - SPAWNER_BREAK
+          - SPAWNER_INTERACT
+          - TNT_PLACE
+          - TNT_IGNITE
+          - ITEM_FRAME
+          - ARMOR_STAND
+
+    relations:
+
+      ALLY:
+        territory-actions:
+          - SWITCH
+
+      TRUCE:
+        territory-actions: []
+
+      NEUTRAL:
+        territory-actions: []
+
+      ENEMY:
+        territory-actions: []
+
+
+# ============================================================
+# TERRITORY / RAID POLICY
 # ============================================================
 territory:
-  # Message de refus (avec cooldown pour éviter spam)
-  deny-message-cooldown: 2000  # millisecondes
-  
-  # Son de refus
-  deny-sound:
-    enabled: true
-    sound: NOTE_BASS
-    
-  # Anti-desync (envoie un block update au client)
-  anti-desync: true
+
+  # Afficher les titres lors d'un changement de territoire.
+  use-titles: true
+
+  # ----------------------------------------------------------
+  # Comportement d'une faction RAIDABLE
+  # ----------------------------------------------------------
+  raid:
+
+    # Autoriser les ennemis à poser des blocs dans un claim raidable.
+    allow-build: true
+
+    # Autoriser les ennemis à casser.
+    allow-break: true
+
+    # Autoriser l'accès aux containers.
+    allow-containers: true
+
+    # Autoriser les actions TNT.
+    allow-tnt: true
+
+    # Autoriser les actions spawners.
+    allow-spawners: true
+
 
 # ============================================================
-# RELATIONS
+# GLOBAL ZONES V2.2 - DYNAMIQUES
+# ============================================================
+#
+# Toute sous-section valide de "zones:" devient automatiquement un type
+# de Global Zone utilisable par les commandes staff.
+#
+# ID autorisé:
+#   [a-z0-9_-]
+#   1 à 32 caractères
+#
+# Exemples valides:
+#   safezone
+#   warzone
+#   avant_post
+#   event_pvp
+#   boss-zone
+#
+# Commandes:
+#   /kf zone list
+#   /kf zone info
+#   /kf zone claim <zone>
+#   /kf zone unclaim [zone]
+#   /kf zone auto <zone|off>
+#   /kf zone autounclaim <zone|off>
+#   /kf zone reload
+#
+# IMPORTANT:
+# - SafeZone et WarZone ne sont plus des claims faction normaux.
+# - Une zone custom n'est jamais transformée en fausse Faction.
+# - Les chunks persistés stockent uniquement leur zoneId.
+# - Retirer une définition alors que des chunks l'utilisent crée une zone
+#   "orpheline" fail-closed, visible avec /kf doctor zones.
+#
+zones:
+
+  # Garde-fou global de chunks Global Zone.
+  max-total-chunks: 200000
+
+  # ----------------------------------------------------------
+  # SAFEZONE - définition legacy fournie par défaut
+  # ----------------------------------------------------------
+  safezone:
+
+    # Nom visible dans titres/map/admin.
+    display-name: "SafeZone"
+
+    # Code couleur Minecraft.
+    color: "&a"
+
+    # Symbole /f map.
+    map-symbol: "S"
+
+    # Titre lors de l'entrée.
+    title: "&aSafeZone"
+    subtitle: "&7Zone protégée"
+
+    # Message utilisé si territory.use-titles=false.
+    enter-message: "&a~ SafeZone"
+
+    # PvP autorisé dans cette zone ?
+    pvp: false
+
+    # ALLOW:
+    # toute action non listée dans denied-actions est autorisée.
+    default-policy: ALLOW
+
+    denied-actions:
+      - BLOCK_PLACE
+      - BLOCK_BREAK
+      - SPAWNER_PLACE
+      - SPAWNER_BREAK
+      - TNT_PLACE
+      - TNT_IGNITE
+      - BUCKET_EMPTY
+      - BUCKET_FILL
+      - FLINT_AND_STEEL
+      - SET_HOME
+      - ENDER_PEARL
+
+      # Protections environnementales Lot25D.
+      - PISTON
+      - FLUID_FLOW
+      - FIRE_SPREAD
+      - EXPLOSION_BLOCK_DAMAGE
+      - ENTITY_GRIEF
+      - WITHER_SPAWN
+
+    allowed-actions: []
+
+  # ----------------------------------------------------------
+  # WARZONE - définition legacy fournie par défaut
+  # ----------------------------------------------------------
+  warzone:
+
+    display-name: "WarZone"
+    color: "&4"
+    map-symbol: "W"
+
+    title: "&4WarZone"
+    subtitle: "&cPvP activé - Zone dangereuse"
+    enter-message: "&4~ WarZone &c(PvP activé)"
+
+    pvp: true
+
+    # DENY:
+    # toute action non listée dans allowed-actions est refusée.
+    default-policy: DENY
+
+    allowed-actions:
+      - ENTER
+      - SWITCH
+      - CONTAINER_OPEN
+      - CONTAINER_DEPOSIT
+      - CONTAINER_WITHDRAW
+      - HOPPER
+      - ANVIL
+      - ENCHANT
+      - ENDER_PEARL
+
+      # Conserve le comportement historique WarZone:
+      # environnement et explosions autorisés.
+      - PISTON
+      - FLUID_FLOW
+      - FIRE_SPREAD
+      - EXPLOSION_BLOCK_DAMAGE
+
+    denied-actions: []
+
+  # ----------------------------------------------------------
+  # EXEMPLE DE ZONE CUSTOM
+  # ----------------------------------------------------------
+  #
+  # Décommente ce bloc pour créer réellement la zone "avant_post".
+  #
+  # avant_post:
+  #
+  #   display-name: "Avant-Post"
+  #   color: "&6"
+  #   map-symbol: "A"
+  #
+  #   title: "&6Avant-Post"
+  #   subtitle: "&eZone PvP spéciale"
+  #   enter-message: "&6~ Avant-Post &e(PvP)"
+  #
+  #   pvp: true
+  #
+  #   default-policy: DENY
+  #
+  #   allowed-actions:
+  #     - ENTER
+  #     - SWITCH
+  #     - CONTAINER_OPEN
+  #     - CONTAINER_DEPOSIT
+  #     - CONTAINER_WITHDRAW
+  #
+  #   denied-actions:
+  #     - SET_HOME
+
+
+# ============================================================
+# TERRITORY ACTIONS DISPONIBLES
+# ============================================================
+#
+# ENTER
+#
+# BLOCK_PLACE
+# BLOCK_BREAK
+#
+# PISTON
+# FLUID_FLOW
+# FIRE_SPREAD
+# EXPLOSION_BLOCK_DAMAGE
+# ENTITY_GRIEF
+# WITHER_SPAWN
+#
+# SWITCH
+# REDSTONE
+#
+# CONTAINER_OPEN
+# CONTAINER_DEPOSIT
+# CONTAINER_WITHDRAW
+#
+# HOPPER
+# FURNACE
+# BREWING
+# ANVIL
+# ENCHANT
+#
+# ITEM_FRAME
+# ARMOR_STAND
+#
+# SPAWNER_PLACE
+# SPAWNER_BREAK
+# SPAWNER_INTERACT
+#
+# TNT_PLACE
+# TNT_IGNITE
+#
+# BUCKET_EMPTY
+# BUCKET_FILL
+# FLINT_AND_STEEL
+#
+# ENDER_PEARL
+# VEHICLE
+# FLY
+# TELEPORT_IN
+# SET_HOME
+# COMMAND_USE
+#
+# DENY est toujours prioritaire si une action apparaît par erreur
+# dans allowed-actions ET denied-actions.
+#
+# ============================================================
+# RELATIONS V2 - SOURCE DE VÉRITÉ
 # ============================================================
 relations:
-  # Activer/désactiver certaines relations
+
+  # Durée d'une demande ALLY/TRUCE.
+  request-expiration-seconds: 300
+
   ally:
     enabled: true
+
+    # -1 = illimité.
     max-per-faction: 3
+
+    # true  = la cible doit faire /f ally <faction> pour accepter.
+    # false = la relation mutuelle est créée immédiatement.
+    require-mutual: true
+
   truce:
     enabled: true
     max-per-faction: 5
+    require-mutual: true
+
   enemy:
     enabled: true
-    
-  # Friendly fire
+
+    # ENEMY reste unilatéral; cette limite s'applique au déclarant.
+    # -1 = illimité.
+    max-per-faction: 10
+
   friendly-fire:
+
+    # Chemin canonique lu par PermissionService V2.
     same-faction: false
-    ally: false
-    truce: true
-    
-  # Multiplicateur de dégâts entre alliés (si FF activé)
-  ally-damage-multiplier: 0.5
+
+
+# Fallback historique.
+# Laisse la même valeur que relations.friendly-fire.same-faction.
+pvp:
+  allow-friendly-fire: false
+
 
 # ============================================================
-# ÉCONOMIE (Vault)
+# ÉCONOMIE / VAULT V2
 # ============================================================
 economy:
-  # Coût de création d'une faction (0 = gratuit)
+
+  # Coût historique de création.
   faction-create-cost: 0.0
-  
-  # Coût par claim (0 = gratuit)
-  claim-cost: 0.0
-  
-  # Entretien automatique (désactivé par défaut)
-  upkeep:
-    enabled: false
-    cost-per-claim: 10.0
-    interval-hours: 24
+
+  # ----------------------------------------------------------
+  # Garde-fous MoneyAmount V2
+  # ----------------------------------------------------------
+  #
+  # ÉCRIRE COMME STRING:
+  # évite toute conversion YAML intermédiaire en double.
+  #
+  # 2 décimales maximum.
+  max-transaction: "1000000000.00"
+
+  # Maximum canonique représentable dans un long de minor units.
+  max-faction-bank: "92233720368547758.07"
+
+
 
 # ============================================================
-# TNT / EXPLOSIONS
+# HOME / TELEPORT V2
 # ============================================================
-explosions:
-  # Activer le système de résistance des blocs
-  block-resistance:
-    enabled: true
-    # Nombre d'explosions pour détruire
-    blocks:
-      OBSIDIAN: 6
-      ENDER_CHEST: 4
-      ENCHANTMENT_TABLE: 3
-      ANVIL: 3
-      BEACON: 2
-      
-  # Temps de régénération des dégâts (secondes, 0 = jamais)
-  damage-regen-time: 300
-  
-  # Particules de dégâts
-  damage-particles: true
+home:
+
+  # Warmup avant /f home.
+  delay: 3
+
+teleport:
+
+  # Distance réellement tolérée pendant le warmup.
+  # 0.5 = un vrai déplacement annule le TP.
+  cancel-move-distance: 0.5
+
+
+# ============================================================
+# WARPS V2
+# ============================================================
+warps:
+
+  # Limite de base.
+  # Les récompenses progression peuvent augmenter la limite de la faction.
+  max-per-faction: 1
+
+  max-name-length: 16
+
+  # Warmup /f warp.
+  teleport-delay: 3
+
+  # Temps pour saisir le mot de passe dans le chat.
+  password-prompt-timeout-seconds: 30
+
+  password:
+
+    # Longueur d'un nouveau mot de passe.
+    min-length: 4
+    max-length: 64
+
+    # PBKDF2.
+    # Bornes code: 10000 -> 500000.
+    pbkdf2-iterations: 60000
+
+
+# ============================================================
+# GRACE PERIOD V2
+# ============================================================
+grace:
+
+  # true:
+  # /f grace status peut être consulté sans permission staff.
+  status-public: true
+
+  # Annonce START / EXTEND / STOP / expiration.
+  broadcast-changes: true
+
+  # Durée restante maximale.
+  # 2592000 = 30 jours.
+  max-duration-seconds: 2592000
+
+  protections:
+
+    # Rend les factions non raidables et empêche overclaim.
+    raids: true
+
+    # Active la blacklist protected-actions contre les ENEMY.
+    territory-actions: true
+
+    # Empêche une explosion de détruire les blocs protégés.
+    explosion-block-damage: true
+
+    # false = PvP enemy reste possible pendant la grace.
+    # true  = PvP enemy également bloqué.
+    enemy-pvp: false
+
+  protected-actions:
+    - BLOCK_PLACE
+    - BLOCK_BREAK
+    - SWITCH
+    - REDSTONE
+    - CONTAINER_OPEN
+    - CONTAINER_DEPOSIT
+    - CONTAINER_WITHDRAW
+    - HOPPER
+    - FURNACE
+    - BREWING
+    - ITEM_FRAME
+    - ARMOR_STAND
+    - SPAWNER_PLACE
+    - SPAWNER_BREAK
+    - SPAWNER_INTERACT
+    - TNT_PLACE
+    - TNT_IGNITE
+    - FLINT_AND_STEEL
+    - BUCKET_EMPTY
+    - BUCKET_FILL
+
+
+# ============================================================
+# SAFEZONE / WARZONE
+# ============================================================
+#
+# Toutes leurs règles sont désormais définies UNIQUEMENT dans:
+#
+#   zones.safezone
+#   zones.warzone
+#
+# Il n'existe plus de deuxième configuration pvp/explosions ici.
+# ============================================================
+
 
 # ============================================================
 # PROTECTION ANTI-EXPLOIT
 # ============================================================
 protection:
-  # Empêche les pistons de pousser/tirer des blocs entre claims
+
   prevent-piston-exploit: true
-  
-  # Empêche l'eau/lave de couler dans les claims ennemis
   prevent-fluid-flow: true
-  
-  # Empêche le feu de se propager dans les claims
   prevent-fire-spread: true
-  
-  # Empêche les Endermen de prendre des blocs dans les claims
   prevent-enderman-grief: true
-  
-  # Empêche les Creepers d'endommager les claims
+
   prevent-creeper-damage: false
-  
-  # Empêche la TNT tirée de l'extérieur d'endommager les claims
   prevent-external-tnt: false
-  
-  # Empêche les Withers d'endommager les claims
+
   prevent-wither-damage: true
-  
-  # Empêche le spawn de Wither dans les claims
   prevent-wither-spawn-in-claims: true
-  
-  # Empêche les hoppers de voler des items entre claims
+
   prevent-hopper-stealing: false
-  
-  # Empêche les ender pearls de TP dans les claims ennemis
   prevent-enderpearl-into-claims: false
 
+
 # ============================================================
-# TNT BANK (optionnel)
+# TNT BANK
 # ============================================================
 tnt:
+
   bank:
     enabled: false
     max-per-faction: 10000
-  auto-deposit:
-    enabled: false
+
+
 
 # ============================================================
-# MAP
+# MAP V2
 # ============================================================
+#
+# La carte est toujours orientée NORD EN HAUT.
+#
+# Auto-map:
+# - aucun scheduler;
+# - aucun refresh yaw;
+# - refresh seulement lors d'un changement de chunk.
+#
 map:
-  width: 10
-  height: 8
-  
-  symbols:
-    wilderness: "▇"
-    safezone: "▇"
-    warzone: "▇"
-    claim: "▇"
-    player: "✖"
-  
-  # Couleurs Minecraft (§X) associées à chaque type de territoire
-  # own     = territoire de votre propre faction
-  # ally    = territoire d'un allié confirmé
-  # truce   = territoire d'une faction en trêve
-  # enemy   = territoire d'une faction ennemie ou neutre hostile
-  # neutral = territoire d'une faction tierce (ni allié, ni ennemi)
-  colors:
-    wilderness: "§7"
-    safezone:   "§a"
-    warzone:    "§4"
-    own:        "§2"
-    ally:       "§9"
-    truce:      "§e"
-    enemy:      "§c"
-    neutral:    "§f"
-    player:     "§5"
 
-  # Textes au survol des cases (hover) en jeu
-  # Mettre une valeur vide "" pour désactiver le hover sur ce type
-  # Placeholder {name} = nom de la faction
+  # Les dimensions paires sont converties vers l'impair supérieur.
+  # Bornes:
+  # width  9 -> 39
+  # height 5 -> 15
+  width: 31
+  height: 9
+
+  # FIXED / TAG_INITIAL / NAME_INITIAL
+  claimed-symbol-mode: "TAG_INITIAL"
+
+  auto:
+    enabled: true
+
+  symbols:
+    wilderness: "·"
+    # Compatibilité ancienne MapManager uniquement.
+    # Le rendu V2.2 utilise zones.<id>.map-symbol.
+    safezone: "S"
+    warzone: "W"
+    claim: "■"
+
+    player:
+      south: "▼"
+      south_west: "↙"
+      west: "◀"
+      north_west: "↖"
+      north: "▲"
+      north_east: "↗"
+      east: "▶"
+      south_east: "↘"
+
+  colors:
+    wilderness: "&8"
+    # Compatibilité ancienne MapManager uniquement.
+    # Le rendu V2.2 utilise zones.<id>.color.
+    safezone: "&a"
+    warzone: "&4"
+
+    own: "&2"
+    ally: "&d"
+    truce: "&e"
+    enemy: "&c"
+    neutral: "&f"
+
+    player: "&b"
+
+  header: "&8&m-------&r &6&lCarte des territoires &8&m-------&r &7Face: &e{direction}"
+  footer: "&7Zone: {zone_color}{zone_name} &8| &7Relation: {relation_color}{relation} &8| &7Chunk: &f{x}, {z}"
+
+  legend:
+    enabled: true
+
+    own: "Soi"
+    ally: "Allié"
+    truce: "Trêve"
+    enemy: "Ennemi"
+    neutral: "Neutre"
+
+    wilderness: "Wilderness"
+    safezone: "SafeZone"
+    warzone: "WarZone"
+    player: "Toi"
+
   hover:
     enabled: true
-    player:     "§dMoi"
-    wilderness: ""
-    safezone:   "§aSafezone"
-    warzone:    "§4Warzone"
-    own:        "§2{name}"
-    ally:       "§9Allié: {name}"
-    truce:      "§eTrêve: {name}"
-    enemy:      "§cEnnemi: {name}"
-    neutral:    "§fNeutre: {name}"
-  
-  show-legend: true
-  show-coordinates: true
+
+    # Template générique pour toutes les Global Zones dynamiques.
+    # Placeholders:
+    # {zone_id} {zone_name} {zone_color} {pvp} {x} {z}
+    global-zone: "{zone_color}{zone_name}\n&7ID: &f{zone_id}\n&7Chunk: &f{x}, {z}\n&7PvP: &f{pvp}"
+
+    # Placeholders:
+    # {name} {tag} {claims} {members}
+    # {relation} {relation_color}
+    # {zone_name} {zone_color}
+    # {x} {z}
+
+    player: "&bToi\n&7Chunk: &f{x}, {z}\n&7Zone: {zone_color}{zone_name}"
+    wilderness: "&8Wilderness\n&7Chunk: &f{x}, {z}"
+    safezone: "&aSafeZone\n&7Chunk: &f{x}, {z}"
+    warzone: "&4WarZone\n&7Chunk: &f{x}, {z}"
+
+    own: "&2{name} &8[{tag}]\n&7Relation: &aSoi\n&7Claims: &f{claims}\n&7Membres: &f{members}\n&7Chunk: &f{x}, {z}"
+    ally: "&d{name} &8[{tag}]\n&7Relation: &dAllié\n&7Claims: &f{claims}\n&7Chunk: &f{x}, {z}"
+    truce: "&e{name} &8[{tag}]\n&7Relation: &eTrêve\n&7Claims: &f{claims}\n&7Chunk: &f{x}, {z}"
+    enemy: "&c{name} &8[{tag}]\n&7Relation: &cEnnemi\n&7Claims: &f{claims}\n&7Chunk: &f{x}, {z}"
+    neutral: "&f{name} &8[{tag}]\n&7Relation: &fNeutre\n&7Claims: &f{claims}\n&7Chunk: &f{x}, {z}"
+
 
 # ============================================================
 # INACTIVITÉ
 # ============================================================
 inactivity:
-  # Jours avant transfert automatique de leadership
+
+  # Jours avant recherche d'un nouveau leader.
   leader-days: 14
-  
-  # Jours avant qu'un membre soit considéré inactif
+
+  # Membre considéré inactif après X jours.
   member-days: 30
-  
-  # Dissoudre la faction si aucun remplaçant trouvé
+
+  # true:
+  # disband si aucun remplaçant valable n'existe.
   disband-if-no-replacement: false
 
-# ============================================================
-# HOME / TELEPORTATION
-# ============================================================
-home:
-  # Délai avant téléportation (secondes)
-  delay: 3
-  
-  # Annuler si le joueur bouge
-  cancel-on-move: true
-  
-  # Annuler si le joueur est attaqué
-  cancel-on-damage: true
-  
-  # Cooldown entre téléportations (secondes)
-  cooldown: 60
 
 # ============================================================
-# WARZONE / SAFEZONE
-# ============================================================
-warzone:
-  # PvP activé
-  pvp: true
-  # Explosions activées
-  explosions: true
-  # Perte de power à la mort
-  power-loss: true
-
-safezone:
-  # PvP désactivé
-  pvp: false
-  # Explosions désactivées
-  explosions: false
-  # Pas de perte de power
-  power-loss: false
-  # Régénération de vie
-  health-regen: true
-
-# ============================================================
-# CHAT FACTION (Privé)
+# CHAT FACTION
 # ============================================================
 faction-chat:
-  # Activer le système de chat faction
+
   enabled: true
-  
-  # Format du chat FACTION (membres de ta faction seulement)
-  # Placeholders: {faction}, {faction_tag}, {role}, {role_name}, {player}, {message}
+
+  # Placeholders:
+  # {faction}, {faction_tag}, {role}, {role_name},
+  # {player}, {message}
   faction:
     format: "&a[{faction}] {role}{player}: &f{message}"
-    
-  # Format du chat ALLY (faction + alliés confirmés)
+
   ally:
     format: "&5[Ally][{faction}] {player}: &f{message}"
-    
-  # Format du chat TRUCE (faction + trêves confirmées)
+
   truce:
     format: "&e[Truce][{faction}] {player}: &f{message}"
-    
-  # Format du spy (pour les admins)
-  # Placeholders: {original}, {faction}, {mode}
+
+  # {original}, {faction}, {mode}
   spy:
     format: "&8[SPY] &7{original}"
 
+
 # ============================================================
-# INTÉGRATIONS
+# HOOKS HISTORIQUES
 # ============================================================
 hooks:
-  # Bloquer certaines actions si en combat (via Kcore ou CombatTagPlus)
+
+  # Bloquer certaines actions si le joueur est marqué en combat
+  # via Kcore ou CombatTagPlus.
   combat-block:
     home: true
     stuck: true
     leave: true
 
+
 # ============================================================
-# LOGS DE FACTION
+# INTEGRATIONS V2
 # ============================================================
+integrations:
+
+  # ----------------------------------------------------------
+  # LuckPerms contexts
+  # ----------------------------------------------------------
+  luckperms-contexts:
+
+    # Contextes exposés:
+    # kfaction:has-faction=true|false
+    # kfaction:faction=<id>
+    # kfaction:faction-tag=<tag>
+    # kfaction:role=<role>
+    enabled: true
+
+
+# ============================================================
+# KCLASSEMENT / FTOP
+# ============================================================
+#
+# Valeur calculée par l'intégration:
+# bank + power * power-multiplier
+#      + claims * claim-value
+#      + members * member-value
+#
+ftop:
+  power-multiplier: 1.0
+  claim-value: 0.0
+  member-value: 0.0
+
+
+# ============================================================
+# PROGRESSION RUNTIME V2
+# ============================================================
+#
+# ATTENTION:
+# Ceci ne définit PAS les quêtes/niveaux.
+# La source de vérité est progression.yml.
+#
+progression-runtime:
+
+  # Nombre max de facettes logiques produites par un événement.
+  # Bornes code: 1 -> 64.
+  max-actions-per-event: 16
+
+  # Message/broadcast interne lorsqu'une quête est terminée.
+  broadcast-quest-complete: true
+
+  # Audit seulement les complétions importantes,
+  # jamais chaque bloc/mob individuel.
+  audit-quest-complete: true
+
+
+# ============================================================
+# LEGACY LOGS FACTION
+# ============================================================
+#
+# Ces logs servent toujours à la compatibilité historique /f logs.
+# Ils sont distincts de audit.db.
+#
 logs:
-  # Durée de rétention des logs (en heures)
-  # Les logs plus vieux seront supprimés automatiquement
+
   retention-hours: 36
-  
-  # Intervalle de nettoyage automatique (en minutes)
   cleanup-interval-minutes: 30
-  
-  # Nombre maximum de logs par faction (les plus anciens sont supprimés)
-  # Empêche la croissance mémoire infinie avec 1000+ joueurs
   max-per-faction: 500
-  
-  # Intervalle de flush des logs sur disque (en secondes)
-  # Les logs sont buffered en mémoire et écrits par batch
-  # Plus bas = plus réactif mais plus d'I/O
   flush-interval-seconds: 10
-  
-  # Types de logs à enregistrer
+
   types:
-    # Actions sur les membres
     members: true
-    # Actions sur le territoire (claim, unclaim, home, warp)
     territory: true
-    # Actions économiques (deposit, withdraw)
     economy: true
-    # Téléportations (home, warp, invite tp)
     teleport: true
-    # F-Chest (dépôt/retrait d'items)
     chest: true
+
+
+# ============================================================
+# AUDIT V2
+# ============================================================
+#
+# Base séparée:
+# plugins/Kfaction/audit.db
+#
+audit:
+
+  # File RAM des événements Audit V2.
+  queue-capacity: 10000
+
+  # Entrées max par transaction SQLite.
+  batch-size: 250
+
+  # Fréquence du writer.
+  # Minimum interne: 100 ms.
+  flush-interval-ms: 1000
+
+  # Conservation audit.db.
+  retention-days: 90
+
+  # Limite maximale d'une recherche staff.
+  max-query-limit: 200
+
+  # File bornée des requêtes /kf audit.
+  # Bornes code: 8 -> 1024.
+  query-queue-capacity: 64
+
+
+# ============================================================
+# DIAGNOSTICS / DOCTOR V2
+# ============================================================
+#
+# /kf doctor est READ-ONLY:
+# - ne rebuild pas;
+# - ne save pas;
+# - ne crée pas de FPlayer;
+# - ne rejoue pas une reward progression.
+#
+diagnostics:
+
+  # WARN mémoire JVM.
+  # Bornes: 50 -> 99 %.
+  memory-warning-percent: 90
+
+  # WARN si trop de snapshots restent dirty.
+  storage-dirty-warning: 1000
+
+  # WARN si la queue writer atteint ce pourcentage
+  # OU si au moins un write a déjà été rejeté.
+  # Bornes: 25 -> 99.
+  storage-writer-queue-warning-percent: 75
+
+  # WARN sur la queue d'ENTRÉES audit.
+  audit-queue-warning-percent: 75
+
+  # WARN sur la queue des REQUÊTES audit.
+  audit-query-queue-warning-percent: 75
+
+
+# ============================================================
+# NOTES DE SÉCURITÉ V2
+# ============================================================
+#
+# 1. Ne configure PAS MYSQL comme storage.type.
+#
+# 2. Ne mets jamais un mot de passe de warp dans ce fichier.
+#    Les secrets sont saisis en chat intercepté puis hashés PBKDF2.
+#
+# 3. Les rewards progression pending ne sont jamais rejouées aveuglément.
+#
+# 4. Pour les quêtes/niveaux:
+#      plugins/Kfaction/progression.yml
+#    est la seule source de vérité V2.
+#
+# 5. quests.yml et levels.yml ne sont plus des ressources runtime V2.
+#    Ils doivent être retirés de src/main/resources.
+#
+# 6. progression.yml est fourni directement dans le JAR et devient la
+#    configuration active par défaut au premier démarrage.
+# ============================================================
+
+# ============================================================
+# ADMIN LEGACY COMPATIBILITY
+# ============================================================
+#
+# Les nouvelles zones dynamiques utilisent /kf zone ...
+# Cette valeur reste uniquement pour l'ancienne syntaxe admin radius.
+#
+admin:
+  zone-unclaim:
+    default-radius: 5
+

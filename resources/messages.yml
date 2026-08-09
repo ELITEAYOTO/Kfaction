@@ -1,0 +1,885 @@
+# ============================================================
+# Kfaction - Messages
+# Tous les messages déclarés ici sont personnalisables.
+#
+# NOTE V2 IMPORTANTE:
+# Quelques diagnostics techniques / détails OperationResult sont encore
+# construits directement dans certaines classes Java (Doctor, progression,
+# quelques refus Home/Warp). Ce fichier couvre toutes les clés MessageManager
+# actuellement référencées par les Lots V2, notamment les mots de passe warps.
+# ============================================================
+
+# Préfixe global
+prefix: "&6[Faction] &r"
+
+# ============================================================
+# GÉNÉRAL
+# ============================================================
+general:
+  no-permission: "&cVous n'avez pas la permission de faire cela."
+  player-only: "&cCette commande est réservée aux joueurs."
+  unknown-command: "&cCommande inconnue. Tapez &e/f help &cpour l'aide."
+  reload: "&aConfiguration rechargée avec succès!"
+  error: "&cUne erreur est survenue. Veuillez réessayer."
+  no-faction: "&cVous n'êtes pas dans une faction."
+  not-in-faction: "&cVous devez être dans une faction pour utiliser cette commande."
+
+# ============================================================
+# ERROR
+# ============================================================
+error:
+  no-faction: "&cVous n'êtes pas dans une faction."
+
+# ============================================================
+# FACTION - Création / Gestion
+# ============================================================
+create:
+  usage: "&cUsage: /f create <nom de faction>"
+  success: "&aFaction &e{name} &acréée avec succès!"
+  already-in-faction: "&cVous êtes déjà dans une faction. Utilisez &e/f leave &cd'abord."
+  name-taken: "&cCe nom de faction est déjà pris."
+  name-length: "&cLe nom doit faire entre {min} et {max} caractères."
+  invalid-name: "&cNom invalide. Uniquement lettres, chiffres et underscores autorisés."
+  invalid-characters: "&cLe nom ne peut contenir que des lettres, chiffres et underscores."
+  blocked-word: "&cCe nom contient un mot interdit."
+  not-enough-money: "&cVous n'avez pas assez d'argent. Coût: &e{cost}$"
+  economy-unavailable: "&cLa création de faction coûte de l'argent mais Vault/économie est indisponible."
+  transaction-failed: "&cLe paiement de création a échoué. Aucun argent n'a été volontairement conservé par Kfaction."
+  failed: "&cÉchec de la création de la faction. Veuillez réessayer."
+  cancelled: "&7Création de faction annulée."
+  broadcast: "&6{player} &ea créé la faction &6{faction}&e!"
+
+disband:
+  success: "&cVotre faction a été dissoute."
+  confirm: "&cÊtes-vous sûr? Tapez &e/f disband confirm &cpour confirmer."
+  not-leader: "&cSeul le chef peut dissoudre la faction."
+  not-in-faction: "&cVous n'êtes pas dans une faction."
+  cancelled: "&7Dissolution annulée."
+  broadcast: "&cLa faction &e{name} &ca été dissoute."
+
+# ============================================================
+# FACTION - Membres
+# ============================================================
+join:
+  usage: "&cUsage: /f join <faction>"
+  success: "&aVous avez rejoint la faction &e{faction}&a!"
+  broadcast: "&a{player} a rejoint la faction!"
+  not-invited: "&cVous n'êtes pas invité dans cette faction."
+  no-invite: "&cVous n'avez pas d'invitation pour cette faction ou elle est fermée."
+  faction-not-found: "&cCette faction n'existe pas."
+  already-in-faction: "&cVous êtes déjà dans une faction."
+  cancelled: "&7Action annulée."
+
+leave:
+  success: "&cVous avez quitté votre faction."
+  broadcast: "&c{player} a quitté la faction."
+  not-in-faction: "&cVous n'êtes pas dans une faction."
+  leader-cannot: "&cLe chef ne peut pas quitter. Utilisez &e/f lead <joueur> &cou &e/f disband&c."
+  leader-cannot-leave: "&cLe chef ne peut pas quitter. Utilisez &e/f leader <joueur> &cpour transférer le leadership ou &e/f disband &cpour dissoudre."
+  cancelled: "&7Action annulée."
+  in-combat: "&cVous ne pouvez pas quitter en combat!"
+
+invite:
+  usage: "&cUsage: /f invite <joueur>"
+  not-in-faction: "&cVous devez être dans une faction pour inviter quelqu'un."
+  success: "&aVous avez invité &e{player} &adans votre faction."
+  received: "&aVous avez été invité à rejoindre &e{faction}&a. Tapez &e/f join {faction} &apour accepter."
+  already-invited: "&c{player} est déjà invité."
+  already-in-faction: "&c{player} est déjà dans une faction."
+  player-not-found: "&cJoueur non trouvé ou hors ligne."
+  no-permission: "&cVous n'avez pas la permission d'inviter."
+
+kick:
+  usage: "&cUsage: /f kick <joueur>"
+  not-in-faction: "&cVous devez être dans une faction pour expulser quelqu'un."
+  not-member: "&cCe joueur n'est pas membre de votre faction."
+  success: "&cVous avez expulsé &e{player} &cde la faction."
+  kicked: "&cVous avez été expulsé de votre faction par &e{kicker}&c."
+  broadcast: "&c{player} a été expulsé de la faction par &e{kicker}&c."
+  cannot-kick-leader: "&cVous ne pouvez pas expulser le chef de la faction."
+  cannot-kick-higher: "&cVous ne pouvez pas expulser un membre de rang égal ou supérieur."
+  cannot-kick-self: "&cVous ne pouvez pas vous expulser vous-même."
+  no-permission: "&cVous n'avez pas la permission d'expulser."
+
+promote:
+  usage: "&cUsage: /f promote <joueur>"
+  not-in-faction: "&cVous devez être dans une faction pour promouvoir quelqu'un."
+  not-member: "&cCe joueur n'est pas membre de votre faction."
+  max-rank: "&cCe joueur est déjà au rang maximum."
+  success: "&aVous avez promu &e{player} &aau rang de &e{role}&a."
+  promoted: "&aVous avez été promu au rang de &e{role} &apar &e{promoter}&a!"
+  broadcast: "&a{player} a été promu au rang de &e{role}&a!"
+  already-max: "&c{player} est déjà au rang maximum."
+  no-permission: "&cVous n'avez pas la permission de promouvoir."
+  hierarchy-denied: "&cVous ne pouvez promouvoir qu'un membre ayant un rang strictement inférieur au vôtre."
+
+demote:
+  usage: "&cUsage: /f demote <joueur>"
+  not-in-faction: "&cVous devez être dans une faction pour rétrograder quelqu'un."
+  not-member: "&cCe joueur n'est pas membre de votre faction."
+  min-rank: "&cCe joueur est déjà au rang minimum."
+  success: "&cVous avez rétrogradé &e{player} &cau rang de &e{role}&c."
+  demoted: "&cVous avez été rétrogradé au rang de &e{role} &cpar &e{demoter}&c."
+  broadcast: "&c{player} a été rétrogradé au rang de &e{role}&c."
+  already-min: "&c{player} est déjà au rang minimum."
+  no-permission: "&cVous n'avez pas la permission de rétrograder."
+  hierarchy-denied: "&cVous ne pouvez rétrograder qu'un membre ayant un rang strictement inférieur au vôtre."
+
+leader:
+  usage: "&cUsage: /f leader <joueur>"
+  not-in-faction: "&cVous devez être dans une faction pour transférer le leadership."
+  not-member: "&cCe joueur n'est pas membre de votre faction."
+  already-leader: "&cVous êtes déjà le chef de cette faction."
+  not-leader: "&cSeul le chef peut transférer le leadership."
+  success: "&aVous avez transféré le leadership à &e{player}&a."
+  received: "&aVous êtes maintenant le chef de la faction!"
+  broadcast: "&a{player} est maintenant le chef de la faction!"
+
+# ============================================================
+# MOD (Commande /f mod)
+# ============================================================
+mod:
+  usage: "&cUsage: /f mod <joueur>"
+  not-in-faction: "&cVous devez être dans une faction."
+  not-member: "&cCe joueur n'est pas membre de votre faction."
+  need-coleader: "&cVous devez être au moins Sous-Chef pour utiliser cette commande."
+  hierarchy-denied: "&cVous ne pouvez modifier le rang que d'un membre strictement inférieur au vôtre."
+  cannot-change-leader: "&cVous ne pouvez pas modifier le rang du Chef."
+  already-mod: "&cCe joueur est déjà Modérateur."
+  success: "&a{player} &aest maintenant Modérateur!"
+  promoted: "&aVous avez été promu Modérateur par &e{player}&a!"
+  broadcast: "&e{player} &aest maintenant Modérateur! &7(par {sender})"
+
+# ============================================================
+# FACTION - Show/Info
+# ============================================================
+show:
+  no-faction: "&cVous n'êtes pas dans une faction."
+  not-found: "&cCette faction ou ce joueur n'existe pas."
+  faction-not-found: "&cLa faction '&e{name}&c' n'existe pas."
+  specify-faction: "&cVeuillez spécifier une faction: &e/f show <faction>"
+  not-in-faction: "&cVous n'êtes pas dans une faction. Utilisez &e/f show <faction> &cpour voir une autre faction."
+  format:
+    - "&6&m─────────────&r &6{name} &6&m─────────────"
+    - "&7Description: &f{description}"
+    - "&7Relation: {relation_color}{relation}"
+    - ""
+    - "&7Power: &a{power}&7/&a{max_power}"
+    - "&7Claims: &e{claims}"
+    - "&7Raidable: {raidable}"
+    - ""
+    - "&7Chef: &e{leader}"
+    - "&7Membres: &a{online}&7/&e{members}"
+    - "&6&m───────────────────────────────────"
+
+# ============================================================
+# CLAIMS
+# ============================================================
+claim:
+  success: "&aClaim réussi! &7(Chunk: &e{x}&7, &e{z}&7)"
+  claimed: "&aTerritoire revendiqué! &7(Chunk: &e{x}&7, &e{z}&7)"
+  failed: "&cÉchec du claim: &e{reason}"
+  no-faction: "&cVous devez être dans une faction pour claim."
+  not-in-faction: "&cVous devez être dans une faction pour revendiquer des territoires."
+  no-permission: "&cVous n'avez pas la permission de claim."
+  limit-reached: "&cLimite de claims atteinte! &7({current}/{max})"
+  already-owned: "&cCe chunk appartient déjà à votre faction."
+  cannot-claim-zone: "&cVous ne pouvez pas claim cette zone."
+  cannot-surclaim: "&cCette faction n'est pas surclaim-able (power >= claims)."
+  world-not-allowed: "&cVous ne pouvez pas claim dans ce monde."
+  not-enough-money: "&cVous n'avez pas assez d'argent. Coût: &e{cost}$"
+  # Messages pour claim en rayon
+  radius-too-large: "&cRayon maximum: 10"
+  invalid-radius: "&cRayon invalide. Utilisez un nombre (ex: /f claim 3)"
+  not-enough-power: "&cPower insuffisant! Vous avez besoin de &e{needed} &cchunks mais seulement &e{available} &cdisponibles."
+  radius-success: "&a{count} chunks revendiqués avec succès! &7(rayon {radius})"
+  # ClaimService V2 /f claim fill
+  fill-success: "&aPoche remplie: &e{count} &achunks revendiqués. &7(Surclaims: &e{overclaims}&7)"
+  radius-failed: "&c{count} chunks n'ont pas pu être revendiqués."
+  
+  surclaim-success: "&aVous avez surclaim un chunk de &c{faction}&a! &7({x}, {z})"
+  surclaimed: "&c{faction} &ca surclaim un de vos chunks! &7({x}, {z})"
+
+unclaim:
+  success: "&cChunk unclaim. &7({x}, {z})"
+  failed: "&cÉchec: &e{reason}"
+  not-owned: "&cCe chunk ne vous appartient pas."
+  not-in-faction: "&cVous devez être dans une faction pour retirer des claims."
+  no-permission: "&cVous n'avez pas la permission d'unclaim."
+
+unclaimall:
+  success: "&cTous vos claims ont été libérés. &7({count} chunks)"
+  confirm: "&cÊtes-vous sûr? Tapez &e/f unclaimall confirm &cpour confirmer."
+  broadcast: "&c{player} &7a libéré &e{count} &7claims de la faction."
+
+autoclaim:
+  enabled: "&aAuto-claim activé."
+  disabled: "&cAuto-claim désactivé."
+
+# ============================================================
+# TERRITORY
+# ============================================================
+territory:
+  enter:
+    wilderness: "&7~ Wilderness"
+    safezone: "&b~ Safezone"
+    warzone: "&4~ Warzone &c(PvP activé)"
+    faction: "{relation_color}~ {faction}"
+  
+  title:
+    wilderness: "&7Wilderness"
+    safezone: "&bSafezone"
+    warzone: "&4Warzone"
+    
+  subtitle:
+    wilderness: "&7Zone non revendiquée"
+    safezone: "&aPVP désactivé"
+    warzone: "&cPVP activé - Zone dangereuse"
+    
+  deny:
+    build: "&cVous ne pouvez pas construire ici!"
+    break: "&cVous ne pouvez pas casser de blocs ici!"
+    interact: "&cVous ne pouvez pas interagir ici!"
+    container: "&cVous ne pouvez pas ouvrir cela ici!"
+
+# ============================================================
+# PROTECTION ANTI-EXPLOIT
+# ============================================================
+protection:
+  cannot-pearl-enemy: "&cVous ne pouvez pas utiliser d'ender pearl dans un territoire ennemi!"
+  cannot-pearl-safezone: "&cVous ne pouvez pas utiliser d'ender pearl dans une safezone!"
+  cannot-pearl-zone: "&cVous ne pouvez pas utiliser d'ender pearl dans la zone &e{zone}&c."
+  piston-blocked: "&7Un piston a été bloqué (protection anti-exploit)."
+
+# ============================================================
+# PVP
+# ============================================================
+pvp:
+  cannot-attack: "&cVous ne pouvez pas attaquer ce joueur ici."
+
+# ============================================================
+# POWER
+# ============================================================
+power:
+  self: "&7Votre power: &e{power}&7/&e{maxpower}"
+  other: "&7Power de &e{player}&7: &e{power}&7/&e{maxpower}"
+  faction: "&7Power de faction: &e{power}&7/&e{maxpower} &7(Claims: &e{claims}&7)"
+  lost: "&cVous avez perdu &e{amount} &cpower. &7(Actuel: &e{current}&7)"
+  regen: "&aVous avez regagné &e{amount} &apower. &7(Actuel: &e{current}&7)"
+  info: "&7Votre power: &e{current}&7/&e{max}"
+  gain-kill: "&a+{amount} power &7pour ce kill."
+  loss-death: "&c-{amount} power &7à cause de votre mort."
+  faction-raidable: "&c⚠ Votre faction est désormais raidable: son power ne couvre plus tous ses claims."
+
+# ============================================================
+# RELATIONS
+# ============================================================
+relation:
+  ally-requested: "&dVous avez demandé une alliance avec &e{faction}&d."
+  ally-request-received: "&d{faction} &dsouhaite s'allier avec vous! Tapez &e/f ally {faction} &dpour accepter."
+  ally-accepted: "&a{faction} &aa accepté votre demande d'alliance!"
+  ally-established: "&aAlliance établie avec &e{faction}&a!"
+  
+  truce-requested: "&eVous avez proposé une trêve avec &e{faction}&e."
+  truce-request-received: "&e{faction} &epropose une trêve! Tapez &e/f truce {faction} &epour accepter."
+  truce-accepted: "&a{faction} &aa accepté la trêve!"
+  truce-established: "&aTrêve établie avec &e{faction}&a!"
+  
+  neutral-set: "&7Vous êtes maintenant neutre avec &e{faction}&7."
+  neutral-received: "&7{faction} &7est maintenant neutre envers vous."
+  
+  enemy-declared: "&cVous avez déclaré &e{faction} &ccomme ennemi!"
+  enemy-received: "&c{faction} &cvous a déclaré ennemi!"
+  
+  ally-limit: "&cVous avez atteint la limite d'alliés ({max})."
+  truce-limit: "&cVous avez atteint la limite de trêves ({max})."
+  same-faction: "&cVous ne pouvez pas changer la relation avec votre propre faction."
+  relation-disabled: "&cCe type de relation est désactivé."
+
+# ============================================================
+# ALLY (Commande /f ally)
+# ============================================================
+ally:
+  usage: "&cUsage: /f ally <faction>"
+  not-in-faction: "&cVous devez être dans une faction pour créer des alliances."
+  faction-not-found: "&cLa faction '&e{name}&c' n'existe pas."
+  cannot-self: "&cVous ne pouvez pas vous allier avec votre propre faction."
+  request-sent: "&dDemande d'alliance envoyée à &e{faction}&d."
+  success: "&aAlliance établie avec &e{faction}&a."
+  cancelled: "&7Demande d'alliance annulée."
+  failed: "&cAlliance impossible: &e{reason}"
+  no-permission: "&cVous n'avez pas la permission de gérer les alliances."
+
+# ============================================================
+# ENEMY (Commande /f enemy)
+# ============================================================
+enemy:
+  usage: "&cUsage: /f enemy <faction>"
+  not-in-faction: "&cVous devez être dans une faction pour déclarer des ennemis."
+  faction-not-found: "&cLa faction '&e{name}&c' n'existe pas."
+  cannot-self: "&cVous ne pouvez pas vous déclarer ennemi de votre propre faction."
+  success: "&cVous avez déclaré &e{faction} &ccomme ennemi!"
+  failed: "&cDéclaration ennemie impossible: &e{reason}"
+  cancelled: "&7Déclaration d'hostilité annulée."
+  no-permission: "&cVous n'avez pas la permission de déclarer des ennemis."
+
+# ============================================================
+# NEUTRAL (Commande /f neutral)
+# ============================================================
+neutral:
+  usage: "&cUsage: /f neutral <faction>"
+  not-in-faction: "&cVous devez être dans une faction."
+  faction-not-found: "&cLa faction '&e{name}&c' n'existe pas."
+  cannot-self: "&cVous ne pouvez pas changer la relation avec votre propre faction."
+  success: "&7Vous êtes maintenant neutre avec &e{faction}&7."
+  failed: "&cRetour à la neutralité impossible: &e{reason}"
+  cancelled: "&7Action annulée."
+  no-permission: "&cVous n'avez pas la permission de gérer les relations."
+
+# ============================================================
+# TRUCE (Commande /f truce)
+# ============================================================
+truce:
+  usage: "&cUsage: /f truce <faction>"
+  not-in-faction: "&cVous devez être dans une faction."
+  faction-not-found: "&cLa faction '&e{name}&c' n'existe pas."
+  cannot-self: "&cVous ne pouvez pas vous allier avec votre propre faction."
+  request-sent: "&eDemande de trêve envoyée à &e{faction}&e."
+  success: "&aTrêve établie avec &e{faction}&a."
+  failed: "&cTrêve impossible: &e{reason}"
+  cancelled: "&7Demande de trêve annulée."
+  no-permission: "&cVous n'avez pas la permission de gérer les trêves."
+
+# ============================================================
+# CHAT
+# ============================================================
+chat:
+  mode-changed: "&7Mode chat changé: &e{mode}"
+  not-in-faction: "&cVous devez être dans une faction pour utiliser ce chat."
+  usage: "&cUsage: /f c <f/a/t/p>"
+  invalid-mode: "&cMode invalide! Utilisez: &ef&c, &ea&c, &et&c, ou &ep&c."
+  modes:
+    public: "Public"
+    faction: "Faction"
+    ally: "Allié"
+    truce: "Trêve"
+
+# ============================================================
+# SPY (Admin)
+# ============================================================
+spy:
+  enabled: "&aVous espionnez maintenant le chat de &e{faction}&a."
+  disabled: "&cVous n'espionnez plus le chat de &e{faction}&c."
+  not-spying: "&7Vous n'espionnez aucune faction actuellement."
+  usage: "&cUsage: &e/f spy <faction> &c- Espionner une faction"
+  faction-not-found: "&cFaction '&e{faction}&c' non trouvée."
+  own-faction: "&cVous ne pouvez pas espionner votre propre faction."
+
+# ============================================================
+# DEPOSIT (Banque)
+# ============================================================
+deposit:
+  usage: "&cUsage: /f deposit <montant>"
+  success: "&aVous avez déposé &e{amount}$ &adans la banque de faction."
+  not-in-faction: "&cVous devez être dans une faction."
+  not-enough-money: "&cVous n'avez pas assez d'argent."
+  invalid-amount: "&cMontant invalide. Utilisez un nombre positif."
+  no-permission: "&cVous n'avez pas la permission de déposer."
+
+# ============================================================
+# WITHDRAW (Banque)
+# ============================================================
+withdraw:
+  usage: "&cUsage: /f withdraw <montant>"
+  success: "&cVous avez retiré &e{amount}$ &cde la banque de faction."
+  not-in-faction: "&cVous devez être dans une faction."
+  not-enough-bank: "&cLa banque n'a pas assez d'argent."
+  invalid-amount: "&cMontant invalide. Utilisez un nombre positif."
+  no-permission: "&cVous n'avez pas la permission de retirer."
+
+# ============================================================
+# BANK (Solde)
+# ============================================================
+bank:
+  balance: "&7Banque de &e{faction}&7: &a{balance}$"
+  not-in-faction: "&cVous devez être dans une faction."
+
+# ============================================================
+# UNCLAIM RADIUS
+# ============================================================
+unclaim-radius:
+  success: "&c{count} chunks libérés. &7(rayon {radius})"
+  confirm: "&cVous allez libérer &e{count} &cchunks. Cliquez pour confirmer."
+  confirm-button: "&a[CONFIRMER]"
+  cancelled: "&7Unclaim annulé."
+  radius-too-large: "&cRayon maximum: 5"
+  invalid-radius: "&cRayon invalide."
+
+# ============================================================
+# COORDS (Commande /f coords)
+# ============================================================
+coords:
+  not-in-faction: "&cVous devez être dans une faction."
+  broadcast: "&d[COORDS] &e{player} &7est en &a{world} &7à &e{x}&7, &e{y}&7, &e{z}"
+  sent: "&aVos coordonnées ont été partagées avec votre faction!"
+
+# ============================================================
+# COLEADER (Commande /f coleader)
+# ============================================================
+coleader:
+  usage: "&cUsage: /f coleader <joueur>"
+  not-in-faction: "&cVous devez être dans une faction."
+  not-leader: "&cSeul le Chef peut nommer un Sous-Chef."
+  not-member: "&cCe joueur n'est pas membre de votre faction."
+  cannot-change-leader: "&cVous ne pouvez pas changer le rôle du Chef."
+  already-coleader: "&cCe joueur est déjà Sous-Chef."
+  success: "&a{player} &aest maintenant Sous-Chef!"
+  promoted: "&aVous avez été promu Sous-Chef par &e{player}&a!"
+  broadcast: "&e{player} &aest maintenant Sous-Chef! &7(par {sender})"
+
+# ============================================================
+# HOME
+# ============================================================
+home:
+  teleporting: "&aTéléportation dans &e{seconds} &asecondes... Ne bougez pas!"
+  cancelled-move: "&cTéléportation annulée (vous avez bougé)."
+  cancelled-damage: "&cTéléportation annulée (vous avez été attaqué)."
+  success: "&aTéléporté au home de faction!"
+  teleported: "&aTéléporté au home de faction!"
+  no-home: "&cVotre faction n'a pas de home défini."
+  not-set: "&cVotre faction n'a pas de home défini."
+  not-in-faction: "&cVous devez être dans une faction pour utiliser cette commande."
+  cooldown: "&cVeuillez attendre &e{seconds} &csecondes."
+  in-combat: "&cVous ne pouvez pas vous téléporter en combat!"
+  removed-unclaim: "&cLe home de votre faction a été supprimé car la zone n'est plus revendiquée."
+
+sethome:
+  not-in-faction: "&cVous devez être dans une faction pour définir son home."
+  success: "&aHome de faction défini à votre position!"
+  no-permission: "&cVous n'avez pas la permission de définir le home."
+  not-in-territory: "&cVous devez être dans votre territoire pour définir le home."
+
+rename:
+  usage: "&cUsage: &e/f rename <nouveau_nom>"
+  not-in-faction: "&cVous devez être dans une faction pour la renommer."
+  invalid-name: "&cNom invalide (longueur, caractères ou mot réservé)."
+  name-taken: "&cLe nom &e{name} &cest déjà utilisé."
+  failed: "&cLe renommage de la faction a échoué."
+  success: "&e{player} &aa renommé la faction &e{old} &aen &e{new}&a."
+
+# ============================================================
+# WARPS
+# ============================================================
+warp:
+  created: "&aWarp &e{name} &acréé avec succès!"
+  created-broadcast: "&a{player} a créé le warp &e{name}&a."
+  updated: "&aWarp &e{name} &amis à jour!"
+  deleted: "&cWarp &e{name} &csupprimé."
+
+  # ----------------------------------------------------------
+  # Téléportation Warp V2
+  # ----------------------------------------------------------
+  teleporting: "&eTéléportation vers le warp &f{name} &edans &f{seconds}s&e. Ne bougez pas."
+  cancelled-move: "&cTéléportation annulée: vous avez bougé."
+  teleported: "&aTéléporté au warp &e{name}&a!"
+  no-warps: "&cVotre faction n'a pas de warps. Utilisez &e/f setwarp <nom>&c."
+  not-found: "&cWarp &e{name} &cnon trouvé."
+  limit-reached: "&cLimite de warps atteinte ({max} maximum)."
+  name-too-long: "&cLe nom du warp est trop long (16 caractères max)."
+  invalid-name: "&cNom invalide. Utilisez uniquement lettres, chiffres, - et _."
+  must-be-in-territory: "&cVous devez être dans votre territoire pour créer un warp."
+  usage-setwarp: "&cUsage: &e/f setwarp <nom>"
+  usage-delete: "&cUsage: &e/f warp delete <nom>"
+  removed-unclaim: "&cLe warp &e{name} &ca été supprimé car la zone n'est plus revendiquée."
+
+  # ----------------------------------------------------------
+  # MOTS DE PASSE WARPS V2
+  # ----------------------------------------------------------
+  #
+  # Sécurité:
+  # - le mot de passe n'est JAMAIS injecté dans un message;
+  # - le message chat est intercepté;
+  # - seul un hash PBKDF2 est persisté.
+  #
+  password:
+
+    # Demande de mot de passe pour entrer sur un warp protégé.
+    prompt-auth: "&eLe warp &f{name} &eest protégé. Écrivez son mot de passe dans le chat."
+
+    # Demande de définition/remplacement du mot de passe.
+    prompt-set: "&eÉcrivez le nouveau mot de passe du warp &f{name} &edans le chat."
+
+    # Aide affichée juste après le prompt.
+    prompt-hint: "&7Votre message sera intercepté par Kfaction. Écrivez &ccancel &7pour annuler."
+
+    # Timeout de la saisie.
+    prompt-expired: "&cLa saisie du mot de passe a expiré."
+
+    # Le joueur a écrit "cancel".
+    prompt-cancelled: "&7Saisie du mot de passe annulée."
+
+    # Le joueur a changé/quitté sa faction entre le prompt et la réponse.
+    faction-changed: "&cVotre faction a changé pendant l'opération."
+
+    # Confirmation après définition du mot de passe.
+    enabled: "&aMot de passe du warp &e{name} &adéfini."
+
+# ============================================================
+# TNT
+# ============================================================
+tnt:
+  disabled: "&cLe système de banque TNT est désactivé sur ce serveur."
+  deposited: "&aVous avez déposé &e{amount} TNT &adans la banque. &7(Total: &e{total}&7)"
+  withdrawn: "&cVous avez retiré &e{amount} TNT &cde la banque. &7(Reste: &e{total}&7)"
+  auto-deposited: "&7TNT déposée automatiquement dans la banque."
+  not-enough: "&cPas assez de TNT dans la banque. &7(Disponible: &e{have}&7, Demandé: &e{need}&7)"
+  not-enough-tnt: "&cVous n'avez pas assez de TNT. &7(Vous avez: &e{have}&7, Requis: &e{need}&7)"
+  no-tnt-in-inventory: "&cVous n'avez pas de TNT dans votre inventaire."
+  bank-full: "&cLa banque TNT est pleine!"
+  inventory-full: "&cVotre inventaire est plein!"
+  bank-info: "&7Banque TNT: &e{amount}&7/&e{max}"
+  invalid-amount: "&cMontant invalide. Utilisez un nombre positif."
+  usage: "&cUsage: /f tnt <deposit|withdraw|info> [montant]"
+  withdraw-usage: "&cUsage: /f tnt withdraw <montant>"
+  partial-deposit: "&7Dépôt partiel: seules &e{amount} TNT &7ont pu être déposées (limite atteinte)."
+  partial-withdraw: "&7Retrait partiel: seules &e{amount} TNT &7ont pu être retirées (inventaire limité)."
+
+# ============================================================
+# ADMIN
+# ============================================================
+admin:
+  no-permission: "&cVous n'avez pas les permissions admin."
+  faction-not-found: "&cFaction '&e{faction}&c' non trouvée."
+  player-not-found: "&cJoueur '&e{player}&c' non trouvé."
+  player-not-in-faction: "&cLe joueur &e{player} &cn'est dans aucune faction."
+  player-no-faction: "&cLe joueur &e{player} &cn'est dans aucune faction."
+  player-not-member: "&cLe joueur &e{player} &cn'est pas membre de cette faction."
+  invalid-number: "&cNombre invalide: &e{value}"
+  invalid-name: "&cNom invalide."
+  invalid-role: "&cRôle invalide. Valides: recruit, member, officer, moderator, coleader. Utilisez forceleader pour LEADER."
+  cannot-target-leader: "&cVous ne pouvez pas modifier le rôle du leader."
+  cannot-disband-system: "&cVous ne pouvez pas dissoudre une faction système."
+  unknown-command: "&cSous-commande admin inconnue. Utilisez &e/f admin help&c."
+  no-home: "&cCette faction n'a pas de home défini."
+  warp-not-found: "&cCe warp n'existe pas."
+  
+  reload:
+    success: "&aConfiguration rechargée avec succès!"
+  reload-success: "&aConfiguration rechargée avec succès!"
+  
+  # Messages flat (format admin.xxx-success)
+  disband-success: "&cLa faction &e{faction} &ca été dissoute de force."
+  forcejoin-success: "&a{player} &aa été forcé à rejoindre &e{faction}&a."
+  forceleave-success: "&c{player} &ca été forcé à quitter sa faction."
+  forceleader-success: "&a{player} &aest maintenant le leader de &e{faction}&a."
+  setbalance-success: "&aBalance de &e{faction} &adéfinie à &e{amount}$&a."
+  setpower-success: "&aLe power de &e{player} &aa été défini à &e{power}&a."
+  setrole-success: "&aLe rôle de &e{player} &aa été défini à &e{role}&a."
+  rename-success: "&aFaction renommée de &e{old} &aà &e{new}&a."
+  settag-success: "&aTag de &e{faction} &achangé en &e{tag}&a."
+  unclaim-success: "&cClaim supprimé à &e{location}&c."
+  tp-home-success: "&aTéléporté au home de &e{faction}&a."
+  tp-warp-success: "&aTéléporté au warp &e{warp} &ade &e{faction}&a."
+  claim-warzone-success: "&cZone de guerre réclamée à &e{location}&c."
+  claim-safezone-success: "&aZone de sûreté réclamée à &e{location}&a."
+    
+  bypass:
+    enabled: "&aMode bypass activé - Vous ignorez la protection des claims."
+    disabled: "&cMode bypass désactivé."
+    
+  debug:
+    enabled: "&aMode debug activé - Messages détaillés dans la console."
+    disabled: "&cMode debug désactivé."
+    
+  setpower:
+    success: "&aLe power de &e{player} &aa été défini à &e{power}&a."
+    usage: "&cUsage: /f admin setpower <joueur> <power>"
+    
+  disband:
+    success: "&cLa faction &e{faction} &ca été dissoute de force."
+    usage: "&cUsage: /f admin disband <faction>"
+    
+  forcejoin:
+    success: "&a{player} &aa été forcé à rejoindre &e{faction}&a."
+    usage: "&cUsage: /f admin forcejoin <joueur> <faction>"
+    
+  forceleave:
+    success: "&c{player} &ca été forcé à quitter sa faction."
+    usage: "&cUsage: /f admin forceleave <joueur>"
+    
+  forceleader:
+    success: "&a{player} &aest maintenant le leader de &e{faction}&a."
+    usage: "&cUsage: /f admin forceleader <joueur> <faction>"
+    
+  setrole:
+    success: "&aLe rôle de &e{player} &aa été défini à &e{role}&a."
+    usage: "&cUsage: /f admin setrole <joueur> <role>"
+    
+  rename:
+    success: "&aFaction renommée de &e{old} &aà &e{new}&a."
+    usage: "&cUsage: /f admin rename <faction> <nouveau_nom>"
+    
+  settag:
+    success: "&aTag de &e{faction} &achangé en &e{tag}&a."
+    usage: "&cUsage: /f admin settag <faction> <nouveau_tag>"
+    
+  setbalance:
+    success: "&aBalance de &e{faction} &adéfinie à &e{amount}$&a."
+    usage: "&cUsage: /f admin setbalance <faction> <montant>"
+    
+  lock:
+    success: "&cFaction &e{faction} &cverrouillée. Les membres ne peuvent plus la quitter."
+    already: "&7Cette faction est déjà verrouillée."
+    
+  unlock:
+    success: "&aFaction &e{faction} &adéverrouillée."
+    already: "&7Cette faction n'est pas verrouillée."
+    
+  teleport:
+    success: "&aTéléporté au home de &e{faction}&a."
+    no-home: "&cCette faction n'a pas de home défini."
+    usage: "&cUsage: /f admin teleport <faction>"
+    
+  claim:
+    warzone: "&cZone de guerre réclamée à &e{location}&c."
+    safezone: "&aZone de sûreté réclamée à &e{location}&a."
+    
+  unclaim:
+    success: "&cClaim supprimé à &e{location}&c."
+    not-claimed: "&7Ce chunk n'est pas réclamé."
+    usage: "&cUsage: /f admin unclaim [faction]"
+    
+  inspect:
+    header: "&6═══════ &eInspection Admin &6═══════"
+    faction-header: "&6Faction: &e{faction}"
+    faction-id: "&7ID: &f{id}"
+    faction-tag: "&7Tag: &f{tag}"
+    faction-leader: "&7Leader: &e{leader}"
+    faction-members: "&7Membres: &e{count}&7/&e{max}"
+    faction-power: "&7Power: &e{current}&7/&e{max}"
+    faction-bank: "&7Banque: &e{amount}$"
+    faction-claims: "&7Claims: &e{count}"
+    faction-created: "&7Créée: &f{date}"
+    faction-locked: "&7Verrouillée: &c{locked}"
+    player-header: "&6Joueur: &e{player}"
+    player-faction: "&7Faction: &e{faction}"
+    player-role: "&7Rôle: &e{role}"
+    player-power: "&7Power: &e{current}&7/&e{max}"
+    player-kills: "&7Kills: &e{kills}"
+    player-deaths: "&7Deaths: &e{deaths}"
+    player-last-seen: "&7Dernière connexion: &f{date}"
+    usage: "&cUsage: /f admin inspect <faction|player> <nom>"
+    
+  notify:
+    prefix: "&8[&cAdmin&8] &7"
+    forcejoin: "&e{admin} &7a forcé &e{player} &7à rejoindre &e{faction}&7."
+    forceleave: "&e{admin} &7a forcé &e{player} &7à quitter sa faction."
+    forceleader: "&e{admin} &7a défini &e{player} &7comme leader de &e{faction}&7."
+    disband: "&e{admin} &7a dissous la faction &e{faction}&7."
+    rename: "&e{admin} &7a renommé &e{old} &7en &e{new}&7."
+    setbalance: "&e{admin} &7a défini la balance de &e{faction} &7à &e{amount}$&7."
+    lock: "&e{admin} &7a verrouillé la faction &e{faction}&7."
+    unlock: "&e{admin} &7a déverrouillé la faction &e{faction}&7."
+    claim: "&e{admin} &7a claim &e{type} &7à &e{location}&7."
+    unclaim: "&e{admin} &7a unclaim &e{location}&7."
+    setrole: "&e{admin} &7a changé le rôle de &e{player} &7en &e{role}&7."
+    setpower: "&e{admin} &7a défini le power de &e{player} &7à &e{power}&7."
+    
+  help:
+    header: "&6═══════ &eCommandes Admin Kfaction &6═══════"
+    bypass: "&e/f admin bypass &7- Toggle bypass mode"
+    reload: "&e/f admin reload &7- Recharger la configuration"
+    setpower: "&e/f admin setpower <joueur> <power> &7- Définir le power"
+    disband: "&e/f admin disband <faction> &7- Dissoudre une faction"
+    forcejoin: "&e/f admin forcejoin <joueur> <faction> &7- Forcer un joueur"
+    forceleave: "&e/f admin forceleave <joueur> &7- Expulser un joueur"
+    forceleader: "&e/f admin forceleader <joueur> <faction> &7- Définir leader"
+    setrole: "&e/f admin setrole <joueur> <role> &7- Définir le rôle"
+    inspect: "&e/f admin inspect <faction|player> <nom> &7- Inspecter"
+    rename: "&e/f admin rename <faction> <nom> &7- Renommer"
+    settag: "&e/f admin settag <faction> <tag> &7- Changer le tag"
+    setbalance: "&e/f admin setbalance <faction> <montant> &7- Définir balance"
+    lock: "&e/f admin lock <faction> &7- Verrouiller faction"
+    unlock: "&e/f admin unlock <faction> &7- Déverrouiller faction"
+    teleport: "&e/f admin teleport <faction> &7- TP au home"
+    claim: "&e/f admin claim <warzone|safezone> &7- Claim admin"
+    unclaim: "&e/f admin unclaim [faction] &7- Unclaim"
+    debug: "&e/f admin debug &7- Toggle debug mode"
+
+# ============================================================
+# LIST / TOP
+# ============================================================
+list:
+  header: "&6═══════ &eListe des Factions &6═══════ &7Page {page}/{total}"
+  entry: "&7- &e{name} &7(&a{members} membres&7, &e{power} power&7)"
+  footer: "&7Tapez &e/f list {next} &7pour la page suivante."
+  # Messages pour le top 5 en ligne
+  header-online: "&6═══════ &eFactions en ligne &6═══════"
+  entry-online: "&e{rank}. &6{name} &7- &a{online}&7/&e{max} en ligne"
+  no-factions-online: "&7Aucune faction n'a de membres en ligne."
+
+top:
+  header-power: "&6═══════ &eTop Factions (Power) &6═══════"
+  header-members: "&6═══════ &eTop Factions (Membres) &6═══════"
+  header-land: "&6═══════ &eTop Factions (Territoires) &6═══════"
+  header-balance: "&6═══════ &eTop Factions (Balance) &6═══════"
+  entry: "&e#{rank} &6{name} &7- Power: &a{power} &7| Membres: &a{members} &7| Land: &e{land} &7| Balance: &e{balance}$"
+
+# ============================================================
+# MAP
+# ============================================================
+map:
+  header: "&6« &eMap des Factions &6»"
+  legend: "&a▓ &7Vous  &d▓ &7Allié  &e▓ &7Trêve  &c▓ &7Ennemi  &f▓ &7Neutre"
+  coordinates: "&7Position: &e{x}&7, &e{z} &7(Chunk: &6{cx}&7, &6{cz}&7)"
+  auto-enabled: "&aMap auto-update activée."
+  auto-disabled: "&cMap auto-update désactivée."
+
+# ============================================================
+# ÉCONOMIE
+# ============================================================
+economy:
+  deposit:
+    success: "&aVous avez déposé &e{amount}$ &adans la banque de faction."
+    not-enough: "&cVous n'avez pas assez d'argent."
+    
+  withdraw:
+    success: "&cVous avez retiré &e{amount}$ &cde la banque de faction."
+    not-enough: "&cLa banque n'a pas assez d'argent."
+    no-permission: "&cVous n'avez pas la permission de retirer de l'argent."
+    
+  balance: "&7Banque de faction: &e{amount}$"
+
+# ============================================================
+# INACTIVITÉ
+# ============================================================
+inactivity:
+  leadership-transferred: "&6[Kfaction] &aVous êtes maintenant le leader de &e{faction} &acar l'ancien leader était inactif!"
+  warning-leader: "&6[Kfaction] &cAttention! Votre leadership pourrait être transféré si vous restez inactif."
+  faction-disbanded: "&6[Kfaction] &cLa faction &e{faction} &ca été dissoute pour inactivité totale."
+
+# ============================================================
+# LOGS FACTION
+# ============================================================
+logs:
+  not-in-faction: "&cVous devez être dans une faction pour voir les logs."
+  no-permission: "&cVous n'avez pas la permission de voir les logs."
+  header: "&6&l━━━ Logs Faction &7({filter}) &6&l━━━"
+  page-info: "&7Page {page}/{total} &8| &7{count} entrées"
+  no-logs: "&7Aucun log trouvé pour ce filtre."
+  filters-help: "&7Filtres: &emembres&7, &eterritoire&7, &eeco&7, &etp&7, &etous"
+
+# ============================================================
+# SYSTÈME DE NIVEAUX
+# ============================================================
+level:
+  header: "&6&l━━━ Niveau Faction &6&l━━━"
+  info: "&7Niveau: &e{level} &8| &7XP: &a{xp}&7/&a{required}"
+  progress-bar: "&7Progression: {bar} &7({percent}%)"
+  no-category: "&7Aucune catégorie de quêtes sélectionnée. Utilisez &e/f quest <catégorie>"
+  next-rewards: "&7Récompenses niveau &e{level}&7:"
+  reward-entry: "  &8▸ &e{reward}"
+  max-level: "&aVotre faction a atteint le niveau maximum affiché!"
+  levelup-broadcast: "&6&l✦ &eLa faction &6{faction} &ea atteint le niveau &6{level}&e! &6&l✦"
+  levelup-member: "&a&l✦ &eVotre faction a atteint le niveau &6{level}&e! &a&l✦"
+
+# ============================================================
+# QUÊTES
+# ============================================================
+quest:
+  header: "&6&l━━━ Quêtes Faction &6&l━━━"
+  category: "&7Catégorie active: {icon} &e{category}"
+  no-category: "&cAucune catégorie sélectionnée! Utilisez &e/f quest <mineur|farmer|chasseur>"
+  quest-entry: "  {icon} &e{name} &8- {bar} &7({progress}/{required}) &8[&a+{xp} XP&8]"
+  quest-completed: "  &a✔ &m{name}&r &8- &aComplétée! &8[&a+{xp} XP&8]"
+  all-completed: "&a✔ Toutes les quêtes sont complétées! Nouvelles quêtes assignées."
+  quest-done: "&a✔ Quête complétée: &e{name} &8[&a+{xp} XP&8]"
+  category-changed: "&aVous avez changé de catégorie pour: {icon} &e{category}"
+  category-same: "&7Vous êtes déjà dans la catégorie &e{category}&7."
+  not-moderator: "&cSeuls les modérateurs et au-dessus peuvent changer la catégorie."
+  available-categories: "&7Catégories disponibles: &e⛏ Mineur&7, &a☘ Farmer&7, &c⚔ Chasseur"
+  no-faction: "&cVous devez être dans une faction pour gérer les quêtes."
+
+# ============================================================
+# COFFRE FACTION (F-CHEST)
+# ============================================================
+chest:
+  opened: "&aOuverture du coffre de faction..."
+  not-unlocked: "&cVotre faction n'a pas encore débloqué le coffre! Atteignez le niveau 1."
+  no-permission: "&cVous n'avez pas la permission d'accéder au coffre."
+  no-faction: "&cVous devez être dans une faction pour utiliser le coffre."
+  title: "&6Coffre &e{faction} &8({size} slots)"
+
+# ============================================================
+# FLY FACTION
+# ============================================================
+fly:
+  enabled: "&aFly activé!"
+  disabled: "&cFly désactivé."
+  disabled-combat: "&c&lFly désactivé! &cVous êtes en combat!"
+  disabled-territory: "&cFly désactivé - Vous avez quitté votre territoire."
+  not-unlocked: "&cVotre faction n'a pas encore débloqué le fly! Atteignez le niveau 4."
+  not-in-territory: "&cVous ne pouvez voler que dans votre territoire."
+  no-permission: "&cVous n'avez pas la permission d'utiliser le fly faction."
+  no-faction: "&cVous devez être dans une faction pour utiliser le fly."
+
+# ============================================================
+# ANTI-SETHOME
+# ============================================================
+antisethome:
+  blocked: "&c&lBloqué! &cVous ne pouvez pas placer de home dans le territoire de &e{faction}&c!"
+
+# ============================================================
+# GLOBAL ZONES V2.2 - ADMINISTRATION
+# ============================================================
+#
+# Ces messages sont utilisés par /kf zone.
+# Les informations détaillées de /kf zone list/info restent structurées
+# comme sortie de diagnostic staff.
+#
+zone-admin:
+
+  no-permission: "&cTu n'as pas la permission."
+  player-only: "&cCette action nécessite un joueur en jeu."
+
+  usage-claim: "&cUsage: &e/kf zone claim <zone>"
+  usage-auto: "&cUsage: &e/kf zone auto <zone|off>"
+  usage-autounclaim: "&cUsage: &e/kf zone autounclaim <zone|off>"
+
+  unknown-zone: "&cZone inconnue: &e{zone}"
+  available-zones: "&7Disponibles: &f{zones}"
+  invalid-id: "&cID de zone invalide."
+
+  no-zone-here: "&7Ce chunk n'a aucune Global Zone."
+  definition-missing: "&cDéfinition de zone absente."
+
+  claim-success: "&a✔ Zone {zone_color}{zone_name} &aassignée au chunk &e{x}&7, &e{z}&a."
+  unclaim-success: "&a✔ Zone &e{zone} &aretirée du chunk &e{x}&7, &e{z}&a."
+
+  auto-claim-on: "&a✔ Auto-zone activé: &e{zone}&a. Marchez de chunk en chunk."
+  auto-claim-off: "&7Auto-zone claim désactivé."
+
+  auto-unclaim-on: "&c✔ Auto-zone unclaim activé: &e{zone}&c. Seuls les chunks de ce type seront retirés."
+  auto-unclaim-off: "&7Auto-zone unclaim désactivé."
+
+  auto-definition-missing: "&c[Zone Auto] Définition inconnue: &e{zone}&c. Mode désactivé."
+  auto-failure: "&c[Zone Auto] Échec: &7{reason}"
+  auto-walk-claim: "&a[Zone Auto] &f{zone} &7→ {x}, {z}"
+  auto-walk-unclaim: "&c[Zone Auto-Unclaim] &f{zone} &7→ {x}, {z}"
+
+  failure: "&cÉchec zone: &7{reason}"
+
+  reload-success: "&a✔ Définitions de zones rechargées: &e{count}"
+  reload-issues: "&e⚠ {count} problème(s) de configuration détecté(s)."
+
+
+
+# ============================================================
+# MENU / PERMISSIONS - FALLBACKS V2
+# ============================================================
+menu:
+  no-gui: "&cAucun GUI n'est disponible pour cette action."
+
+perms:
+  no-permission: "&cVous n'avez pas la permission de modifier les permissions de faction."
+  not-in-faction: "&cVous devez être dans une faction."

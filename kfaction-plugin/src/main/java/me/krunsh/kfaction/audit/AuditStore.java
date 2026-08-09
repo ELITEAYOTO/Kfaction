@@ -57,6 +57,8 @@ public final class AuditStore {
             );
         }
 
+        ensureSqliteDriver();
+
         writerConnection =
                 DriverManager.getConnection(
                         jdbcUrl()
@@ -70,6 +72,27 @@ public final class AuditStore {
         migrateSchema(
                 writerConnection
         );
+    }
+
+    private void ensureSqliteDriver()
+            throws SQLException {
+        try {
+            /*
+             * Bukkit plugins use an isolated classloader. DriverManager's
+             * ServiceLoader cannot reliably discover a driver shaded inside
+             * that classloader, even when META-INF/services is preserved.
+             */
+            Class.forName(
+                    "org.sqlite.JDBC",
+                    true,
+                    plugin.getClass().getClassLoader()
+            );
+        } catch (ClassNotFoundException exception) {
+            throw new SQLException(
+                    "Driver SQLite embarque introuvable",
+                    exception
+            );
+        }
     }
 
     public synchronized void close() {

@@ -41,7 +41,6 @@ softdepend:
   - LuckPerms
   - Kcore
   - Kchat
-  - Kgui
   - Kclassement
   - WorldGuard
   - CombatTagPlus

@@ -1,7 +1,15 @@
 package me.krunsh.kfaction.placeholders;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.bukkit.entity.Player;
 
@@ -15,11 +23,32 @@ import me.krunsh.kfaction.api.v2.PlayerView;
 import me.krunsh.kfaction.api.v2.ProgressionView;
 import me.krunsh.kfaction.api.v2.TerritoryView;
 import me.krunsh.kfaction.data.FLocation;
+import me.krunsh.kfaction.data.FactionRole;
+import me.krunsh.kfaction.utils.FactionRolePresentation;
 
 /**
  * PlaceholderAPI V2.
  *
  * Aucun accès direct à FactionManager/FPlayerManager/ClaimManager/QuestManager.
+ *
+ * Ajouts TAB :
+ *
+ * %kfaction_online_member_1%
+ * %kfaction_online_member_2%
+ * ...
+ *
+ * Valeur combinée :
+ * "&cLeader &8» &fKrunsh_"
+ *
+ * Variantes :
+ * %kfaction_online_member_1_name%
+ * %kfaction_online_member_1_role%
+ *
+ * Les membres sont triés :
+ * LEADER > COLEADER > MODERATOR > OFFICER > MEMBER > RECRUIT,
+ * puis alphabétiquement pour un même rôle.
+ *
+ * Un index sans membre retourne "".
  */
 public final class KfactionExpansion
         extends PlaceholderExpansion {
@@ -27,6 +56,18 @@ public final class KfactionExpansion
     private final Kfaction plugin;
 
     private volatile KfactionApiV2 cachedApi;
+
+    private static final long VIEW_CACHE_TTL_NANOS =
+            TimeUnit.MILLISECONDS.toNanos(100L);
+    private static final long VIEW_CACHE_SWEEP_NANOS =
+            TimeUnit.SECONDS.toNanos(5L);
+    private static final int MAX_VIEW_CACHE_ENTRIES = 2048;
+
+    private final ConcurrentMap<UUID, CachedPlayerView> playerViews =
+            new ConcurrentHashMap<UUID, CachedPlayerView>();
+    private final ConcurrentMap<String, CachedFactionView> factionViews =
+            new ConcurrentHashMap<String, CachedFactionView>();
+    private final AtomicLong nextCacheSweepNanos = new AtomicLong();
 
     public KfactionExpansion(
             Kfaction plugin
@@ -74,20 +115,43 @@ public final class KfactionExpansion
             return "";
         }
 
-        PlayerView playerView =
-                api.getPlayer(
-                        player.getUniqueId()
-                );
-
-        FactionView faction =
-                api.getPlayerFaction(
-                        player.getUniqueId()
-                );
+        long now = System.nanoTime();
+        PlayerView playerView = cachedPlayerView(
+                api,
+                player.getUniqueId(),
+                now
+        );
+        CachedFactionView factionCache = cachedFactionView(
+                api,
+                playerView != null ? playerView.getFactionId() : null,
+                now
+        );
+        FactionView faction = factionCache != null
+                ? factionCache.view
+                : null;
 
         String key =
                 identifier.toLowerCase(
                         Locale.ROOT
                 );
+
+        /*
+         * Placeholders indexés de membres connectés.
+         *
+         * On les traite avant le switch principal pour supporter
+         * n'importe quel index sans ajouter des dizaines de case.
+         */
+        String onlineMember =
+                resolveOnlineMemberPlaceholder(
+                        factionCache != null
+                                ? factionCache.sortedOnlineMembers
+                                : Collections.<MemberView>emptyList(),
+                        key
+                );
+
+        if (onlineMember != null) {
+            return onlineMember;
+        }
 
         switch (key) {
             case "has_faction":
@@ -428,6 +492,255 @@ public final class KfactionExpansion
         }
     }
 
+    /**
+     * Placeholders :
+     *
+     * online_member_1
+     * online_member_1_name
+     * online_member_1_role
+     *
+     * Retourne null si le placeholder n'appartient pas à cette famille.
+     * Retourne "" si le placeholder est valide mais que le slot est vide.
+     */
+    static String resolveOnlineMemberPlaceholder(
+            FactionView faction,
+            String key
+    ) {
+        return resolveOnlineMemberPlaceholder(
+                sortedOnlineMembers(faction),
+                key
+        );
+    }
+
+    private static String resolveOnlineMemberPlaceholder(
+            List<MemberView> members,
+            String key
+    ) {
+        if (key == null
+                || !key.startsWith(
+                        "online_member_"
+                )) {
+            return null;
+        }
+
+        String remainder =
+                key.substring(
+                        "online_member_".length()
+                );
+
+        OnlineMemberField field =
+                OnlineMemberField.LINE;
+
+        if (remainder.endsWith(
+                "_name"
+        )) {
+            field =
+                    OnlineMemberField.NAME;
+
+            remainder =
+                    remainder.substring(
+                            0,
+                            remainder.length()
+                                    - "_name".length()
+                    );
+
+        } else if (remainder.endsWith(
+                "_role"
+        )) {
+            field =
+                    OnlineMemberField.ROLE;
+
+            remainder =
+                    remainder.substring(
+                            0,
+                            remainder.length()
+                                    - "_role".length()
+                    );
+        }
+
+        int index =
+                parsePositiveInt(
+                        remainder
+                );
+
+        if (index <= 0) {
+            return "";
+        }
+
+        int zeroBased =
+                index - 1;
+
+        if (zeroBased >= members.size()) {
+            return "";
+        }
+
+        MemberView member =
+                members.get(
+                        zeroBased
+                );
+
+        String name =
+                safe(
+                        member.getName()
+                );
+
+        FactionRole role =
+                parseRole(
+                        member.getRole()
+                );
+
+        String roleName =
+                role != null
+                        ? role.getDisplayName()
+                        : safe(
+                                member.getRole()
+                        );
+
+        switch (field) {
+            case NAME:
+                return name;
+
+            case ROLE:
+                return roleName;
+
+            default:
+                return roleColor(role)
+                        + roleName
+                        + " &8» &f"
+                        + name;
+        }
+    }
+
+    private static List<MemberView> sortedOnlineMembers(
+            FactionView faction
+    ) {
+        if (faction == null
+                || faction.getMembers() == null
+                || faction.getMembers().isEmpty()) {
+
+            return Collections.emptyList();
+        }
+
+        List<MemberView> result =
+                new ArrayList<MemberView>();
+
+        for (MemberView member
+                : faction.getMembers()) {
+
+            if (member == null
+                    || !member.isOnline()) {
+                continue;
+            }
+
+            result.add(
+                    member
+            );
+        }
+
+        Collections.sort(
+                result,
+                new Comparator<MemberView>() {
+                    @Override
+                    public int compare(
+                            MemberView left,
+                            MemberView right
+                    ) {
+                        int leftPriority =
+                                rolePriority(
+                                        left == null
+                                                ? null
+                                                : left.getRole()
+                                );
+
+                        int rightPriority =
+                                rolePriority(
+                                        right == null
+                                                ? null
+                                                : right.getRole()
+                                );
+
+                        int priority =
+                                Integer.compare(
+                                        rightPriority,
+                                        leftPriority
+                                );
+
+                        if (priority != 0) {
+                            return priority;
+                        }
+
+                        String leftName =
+                                left == null
+                                        ? ""
+                                        : safe(
+                                                left.getName()
+                                        );
+
+                        String rightName =
+                                right == null
+                                        ? ""
+                                        : safe(
+                                                right.getName()
+                                        );
+
+                        return leftName.compareToIgnoreCase(
+                                rightName
+                        );
+                    }
+                }
+        );
+
+        return result;
+    }
+
+    private static int rolePriority(
+            String rawRole
+    ) {
+        FactionRole role =
+                parseRole(
+                        rawRole
+                );
+
+        return role != null
+                ? role.getPriority()
+                : 0;
+    }
+
+    private static FactionRole parseRole(
+            String rawRole
+    ) {
+        if (rawRole == null
+                || rawRole.trim().isEmpty()) {
+            return null;
+        }
+
+        FactionRole parsed =
+                FactionRole.parse(
+                        rawRole
+                );
+
+        if (parsed != null) {
+            return parsed;
+        }
+
+        try {
+            return FactionRole.valueOf(
+                    rawRole.trim()
+                            .toUpperCase(
+                                    Locale.ROOT
+                            )
+            );
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
+    }
+
+    private static String roleColor(
+            FactionRole role
+    ) {
+        return FactionRolePresentation.color(role);
+    }
+
     private KfactionApiV2 api() {
         KfactionApiV2 current = cachedApi;
 
@@ -440,6 +753,84 @@ public final class KfactionExpansion
         }
 
         return current;
+    }
+
+    private PlayerView cachedPlayerView(
+            KfactionApiV2 api,
+            UUID playerId,
+            long now
+    ) {
+        CachedPlayerView cached = playerViews.get(playerId);
+        if (cached != null && cached.expiresAtNanos > now) {
+            return cached.view;
+        }
+
+        PlayerView fresh = api.getPlayer(playerId);
+        playerViews.put(
+                playerId,
+                new CachedPlayerView(fresh, now + VIEW_CACHE_TTL_NANOS)
+        );
+        sweepViewCaches(now);
+        return fresh;
+    }
+
+    private CachedFactionView cachedFactionView(
+            KfactionApiV2 api,
+            String factionId,
+            long now
+    ) {
+        if (factionId == null || factionId.trim().isEmpty()) {
+            return null;
+        }
+
+        CachedFactionView cached = factionViews.get(factionId);
+        if (cached != null && cached.expiresAtNanos > now) {
+            return cached;
+        }
+
+        FactionView fresh = api.getFaction(factionId);
+        CachedFactionView replacement = new CachedFactionView(
+                fresh,
+                sortedOnlineMembers(fresh),
+                now + VIEW_CACHE_TTL_NANOS
+        );
+        factionViews.put(factionId, replacement);
+        sweepViewCaches(now);
+        return replacement;
+    }
+
+    private void sweepViewCaches(long now) {
+        long scheduled = nextCacheSweepNanos.get();
+        if (now < scheduled
+                || !nextCacheSweepNanos.compareAndSet(
+                        scheduled,
+                        now + VIEW_CACHE_SWEEP_NANOS
+                )) {
+            return;
+        }
+
+        for (java.util.Map.Entry<UUID, CachedPlayerView> entry
+                : playerViews.entrySet()) {
+            CachedPlayerView value = entry.getValue();
+            if (value == null || value.expiresAtNanos <= now) {
+                playerViews.remove(entry.getKey(), value);
+            }
+        }
+
+        for (java.util.Map.Entry<String, CachedFactionView> entry
+                : factionViews.entrySet()) {
+            CachedFactionView value = entry.getValue();
+            if (value == null || value.expiresAtNanos <= now) {
+                factionViews.remove(entry.getKey(), value);
+            }
+        }
+
+        if (playerViews.size() > MAX_VIEW_CACHE_ENTRIES) {
+            playerViews.clear();
+        }
+        if (factionViews.size() > MAX_VIEW_CACHE_ENTRIES) {
+            factionViews.clear();
+        }
     }
 
     private String handlePermissionPlaceholder(
@@ -752,6 +1143,29 @@ public final class KfactionExpansion
                 : "false";
     }
 
+    private static int parsePositiveInt(
+            String value
+    ) {
+        if (value == null
+                || value.trim().isEmpty()) {
+            return -1;
+        }
+
+        try {
+            int parsed =
+                    Integer.parseInt(
+                            value.trim()
+                    );
+
+            return parsed > 0
+                    ? parsed
+                    : -1;
+
+        } catch (NumberFormatException ignored) {
+            return -1;
+        }
+    }
+
     private static String safe(
             String value
     ) {
@@ -764,5 +1178,37 @@ public final class KfactionExpansion
         PERCENT,
         COMPLETED,
         TOTAL
+    }
+
+    private enum OnlineMemberField {
+        LINE,
+        NAME,
+        ROLE
+    }
+
+    private static final class CachedPlayerView {
+        private final PlayerView view;
+        private final long expiresAtNanos;
+
+        private CachedPlayerView(PlayerView view, long expiresAtNanos) {
+            this.view = view;
+            this.expiresAtNanos = expiresAtNanos;
+        }
+    }
+
+    private static final class CachedFactionView {
+        private final FactionView view;
+        private final List<MemberView> sortedOnlineMembers;
+        private final long expiresAtNanos;
+
+        private CachedFactionView(
+                FactionView view,
+                List<MemberView> sortedOnlineMembers,
+                long expiresAtNanos
+        ) {
+            this.view = view;
+            this.sortedOnlineMembers = sortedOnlineMembers;
+            this.expiresAtNanos = expiresAtNanos;
+        }
     }
 }

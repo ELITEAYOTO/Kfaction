@@ -1,10 +1,12 @@
 package me.krunsh.kfaction.hooks;
 
 import org.bukkit.Bukkit;
+import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.RegisteredServiceProvider;
 
 import me.krunsh.kfaction.Kfaction;
+import net.milkbowl.vault.chat.Chat;
 import net.milkbowl.vault.economy.Economy;
 
 /**
@@ -14,6 +16,7 @@ public class VaultHook {
     
     private final Kfaction plugin;
     private Economy economy;
+    private Chat chat;
     
     public VaultHook(Kfaction plugin) {
         this.plugin = plugin;
@@ -32,6 +35,13 @@ public class VaultHook {
         }
         
         economy = rsp.getProvider();
+
+        RegisteredServiceProvider<Chat> chatRegistration =
+                Bukkit.getServicesManager().getRegistration(Chat.class);
+        chat = chatRegistration != null
+                ? chatRegistration.getProvider()
+                : null;
+
         return economy != null;
     }
     
@@ -50,6 +60,24 @@ public class VaultHook {
     public double getBalance(Player player) {
         if (economy == null) return 0;
         return economy.getBalance(player);
+    }
+
+    /**
+     * Lecture utilisée par /f show pour les membres déconnectés.
+     * La commande est un chemin utilisateur ponctuel, jamais un hot-path.
+     */
+    public double getBalance(OfflinePlayer player) {
+        if (economy == null || player == null) return 0;
+        return economy.getBalance(player);
+    }
+
+    public boolean hasChat() {
+        return chat != null;
+    }
+
+    public String getPrimaryGroup(OfflinePlayer player) {
+        if (chat == null || player == null) return null;
+        return chat.getPrimaryGroup((String) null, player);
     }
     
     /**

@@ -159,19 +159,24 @@ show:
   faction-not-found: "&cLa faction '&e{name}&c' n'existe pas."
   specify-faction: "&cVeuillez spécifier une faction: &e/f show <faction>"
   not-in-faction: "&cVous n'êtes pas dans une faction. Utilisez &e/f show <faction> &cpour voir une autre faction."
-  format:
-    - "&6&m─────────────&r &6{name} &6&m─────────────"
-    - "&7Description: &f{description}"
-    - "&7Relation: {relation_color}{relation}"
-    - ""
-    - "&7Power: &a{power}&7/&a{max_power}"
-    - "&7Claims: &e{claims}"
-    - "&7Raidable: {raidable}"
-    - ""
-    - "&7Chef: &e{leader}"
-    - "&7Membres: &a{online}&7/&e{members}"
-    - "&6&m───────────────────────────────────"
-
+  # Mise en page V2.3 de /f show. Tous les champs restent modifiables.
+  display:
+    separator: "&8&m----------------------------------------"
+    title: "{relation_color}&l{faction}"
+    description: "&7{description}"
+    leader: "&6Chef: &f{leader}"
+    members-summary: "&6Membres: &a{online}&7/&f{total} &8• &7Places: &f{total}&7/&f{max}"
+    online-label: "&aConnectés &7({count})&8: "
+    offline-label: "&cDéconnectés &7({count})&8: "
+    none: "&7Aucun"
+    power: "&6Power: {power_color}{power}&7/{max_power}"
+    claims: "&6Territoire: &f{claims} chunks"
+    bank: "&6Banque: &f{money}"
+    allies: "&6Alliés: &d{factions}"
+    enemies: "&6Ennemis: &c{factions}"
+    economy-unavailable: "&7Indisponible"
+    server-rank-line: "&7Rang serveur: &f{server_rank}\n"
+    member-hover: "&e{name}\n&7Rang faction: {role_color}{role}\n{server_rank_line}&7Argent: &6{money}"
 # ============================================================
 # CLAIMS
 # ============================================================
@@ -222,13 +227,13 @@ autoclaim:
 territory:
   enter:
     wilderness: "&7~ Wilderness"
-    safezone: "&b~ Safezone"
+    safezone: "&2~ SafeZone"
     warzone: "&4~ Warzone &c(PvP activé)"
     faction: "{relation_color}~ {faction}"
   
   title:
     wilderness: "&7Wilderness"
-    safezone: "&bSafezone"
+    safezone: "&2SafeZone"
     warzone: "&4Warzone"
     
   subtitle:

@@ -13,7 +13,6 @@ import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
 
 import me.krunsh.kfaction.Kfaction;
-import me.krunsh.kfaction.data.Faction;
 
 /**
  * Routeur principal /f.
@@ -108,19 +107,8 @@ public class KfactionCommand implements CommandExecutor, TabCompleter {
             String[] args
     ) {
         if (args.length == 0) {
-            if (sender instanceof Player) {
-                Player player = (Player) sender;
-                Faction faction = plugin.getFactionManager().getPlayerFaction(player);
-
-                if (faction != null) {
-                    getSubCommand("show").execute(sender, new String[0]);
-                } else {
-                    getSubCommand("help").execute(sender, new String[0]);
-                }
-            } else {
-                getSubCommand("help").execute(sender, new String[0]);
-            }
-
+            // /f reste une entrée stable vers l'aide. /f f affiche sa faction.
+            getSubCommand("help").execute(sender, new String[0]);
             return true;
         }
 

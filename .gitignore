@@ -8,6 +8,8 @@
 *.db
 *.db-shm
 *.db-wal
+*.jar
+/libs/
 
 # Runtime data created by local server smokes
 /plugins/

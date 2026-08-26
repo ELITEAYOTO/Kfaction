@@ -2,7 +2,7 @@ jdk:
   - openjdk8
 
 # L'artefact public consommable par les soft-dependants est le module API.
-# Le plugin complet dépend de plusieurs JAR privés/anciens fournis par Volkaria
-# et n'a pas à être construit par JitPack.
+# Le plugin complet est vérifié par GitHub Actions sans redistribuer de JAR
+# tiers, tandis que JitPack publie uniquement le contrat API stable.
 install:
   - mvn -pl kfaction-api -am clean install -DskipTests

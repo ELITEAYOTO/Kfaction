@@ -17,7 +17,7 @@ import me.krunsh.kfaction.data.Faction;
 import me.krunsh.kfaction.policy.QuestSaleIdentity;
 import me.krunsh.kfaction.progression.QuestAction;
 import me.krunsh.kfaction.progression.WorldGuardRegionResolver;
-import shaded.de.tr7zw.changeme.nbtapi.NBTItem;
+import de.tr7zw.changeme.nbtapi.NBTItem;
 
 /**
  * Optional bridge to KHopeSpigot's post-transaction vanilla crafting event.

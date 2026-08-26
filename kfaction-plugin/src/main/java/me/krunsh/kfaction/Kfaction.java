@@ -29,7 +29,7 @@ import me.krunsh.kfaction.listeners.KcraftQuestBridge;
 import me.krunsh.kfaction.listeners.PlayerConnectionListener;
 import me.krunsh.kfaction.listeners.ProtectionListener;
 import me.krunsh.kfaction.listeners.QuestListener;
-import me.krunsh.kfaction.listeners.ShopGuiPlusQuestListener;
+import me.krunsh.kfaction.listeners.ShopGuiPlusQuestBridge;
 import me.krunsh.kfaction.listeners.TerritoryListener;
 import me.krunsh.kfaction.managers.ClaimManager;
 import me.krunsh.kfaction.managers.ConfigManager;
@@ -904,18 +904,12 @@ public class Kfaction extends JavaPlugin {
                 .isPluginEnabled(
                         "ShopGUIPlus"
                 )) {
-            Bukkit.getPluginManager()
-                    .registerEvents(
-                            new ShopGuiPlusQuestListener(
-                                    this
-                            ),
-                            this
-                    );
-
-            KfactionLogger.debug(
-                    this,
-                    "Progression bridge ShopGUIPlus SELL: ACTIVE"
-            );
+            if (new ShopGuiPlusQuestBridge(this).register()) {
+                KfactionLogger.debug(
+                        this,
+                        "Progression bridge ShopGUIPlus SELL: ACTIVE"
+                );
+            }
         } else {
             /*
              * Plugin optionnel absent = état normal, pas un warning.

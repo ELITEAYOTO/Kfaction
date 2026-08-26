@@ -43,8 +43,6 @@ softdepend:
   - Kchat
   - Kclassement
   - WorldGuard
-  - CombatTagPlus
-  - Multiverse-Core
   - ShopGUIPlus
   - Kcraft
   - KSpawner

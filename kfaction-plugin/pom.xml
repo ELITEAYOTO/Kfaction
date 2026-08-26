@@ -69,6 +69,13 @@
                                 </filter>
                             </filters>
 
+                            <relocations>
+                                <relocation>
+                                    <pattern>de.tr7zw.changeme.nbtapi</pattern>
+                                    <shadedPattern>me.krunsh.kfaction.libs.nbtapi</shadedPattern>
+                                </relocation>
+                            </relocations>
+
                             <transformers>
                                 <!--
                                     Recommandé par Xerial avec maven-shade :
@@ -101,21 +108,6 @@
         </resources>
     </build>
 
-    <repositories>
-        <repository>
-            <id>spigot-repo</id>
-            <url>https://hub.spigotmc.org/nexus/content/repositories/snapshots/</url>
-        </repository>
-        <repository>
-            <id>placeholderapi</id>
-            <url>https://repo.extendedclip.com/content/repositories/placeholderapi/</url>
-        </repository>
-        <repository>
-            <id>jitpack.io</id>
-            <url>https://jitpack.io</url>
-        </repository>
-    </repositories>
-
     <dependencies>
         <dependency>
             <groupId>me.krunsh</groupId>
@@ -133,46 +125,25 @@
 
         <!-- Vault API -->
         <dependency>
-            <groupId>com.github.MilkBowl</groupId>
+            <groupId>net.milkbowl.vault</groupId>
             <artifactId>VaultAPI</artifactId>
             <version>1.7</version>
             <scope>provided</scope>
         </dependency>
 
-        <!-- PlaceholderAPI (local) -->
+        <!-- PlaceholderAPI reste optionnel au runtime. -->
         <dependency>
             <groupId>me.clip</groupId>
             <artifactId>placeholderapi</artifactId>
-            <version>2.11.3</version>
-            <scope>system</scope>
-            <systemPath>${project.basedir}/../libs/PlaceholderAPI-2.11.3.jar</systemPath>
+            <version>2.11.6</version>
+            <scope>provided</scope>
         </dependency>
 
-        <!-- CombatTagPlus (local) -->
+        <!-- NBT API embarquée puis isolée dans le namespace Kfaction. -->
         <dependency>
-            <groupId>net.minelink</groupId>
-            <artifactId>CombatTagPlus</artifactId>
-            <version>1.3.0</version>
-            <scope>system</scope>
-            <systemPath>${project.basedir}/../libs/CombatTagPlus.jar</systemPath>
-        </dependency>
-
-        <!-- WorldGuard (local) -->
-        <dependency>
-            <groupId>com.sk89q.worldguard</groupId>
-            <artifactId>worldguard-legacy</artifactId>
-            <version>6.2</version>
-            <scope>system</scope>
-            <systemPath>${project.basedir}/../libs/WorldGuard.jar</systemPath>
-        </dependency>
-
-        <!-- Multiverse-Core (local) -->
-        <dependency>
-            <groupId>com.onarandombox.multiversecore</groupId>
-            <artifactId>Multiverse-Core</artifactId>
-            <version>2.5.0</version>
-            <scope>system</scope>
-            <systemPath>${project.basedir}/../libs/Multiverse-Core-2.5.0.jar</systemPath>
+            <groupId>de.tr7zw</groupId>
+            <artifactId>item-nbt-api</artifactId>
+            <version>2.15.5</version>
         </dependency>
 
         <!-- GSON pour JSON storage -->
@@ -204,13 +175,5 @@
             <scope>test</scope>
         </dependency>
 
-        <!-- API evenementielle de vente; le plugin reste optionnel au runtime. -->
-        <dependency>
-            <groupId>net.brcdev.shopgui</groupId>
-            <artifactId>shopguiplus</artifactId>
-            <version>1.54.0</version>
-            <scope>system</scope>
-            <systemPath>${project.basedir}/../libs/ShopGUIPlus-patched-1.54.0-Volkaria-fail-closed-20260728.jar</systemPath>
-        </dependency>
     </dependencies>
 </project>

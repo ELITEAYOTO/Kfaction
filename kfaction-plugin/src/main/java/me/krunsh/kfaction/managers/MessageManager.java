@@ -57,11 +57,12 @@ public class MessageManager {
         }
         
         messages = YamlConfiguration.loadConfiguration(messagesFile);
+        BundledYamlDefaults.apply(plugin, messages, "messages.yml");
         
         // Charger le préfixe
         prefix = colorize(messages.getString("prefix", "&8[&6Kfaction&8] "));
     }
-    
+
     /**
      * Sauvegarde les messages
      */

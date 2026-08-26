@@ -275,7 +275,11 @@ public final class TerritoryManager {
                     );
         }
 
-        String relationColor = "&f";
+        String relationColor =
+                getFactionDisplayColor(
+                        faction,
+                        playerFaction
+                );
         String relationName = "Neutre";
 
         if (playerFaction != null) {
@@ -284,25 +288,57 @@ public final class TerritoryManager {
                             faction
                     );
 
-            relationColor =
-                    relation.getColorPrefix();
-
             relationName =
                     relation.getDisplayName();
         }
 
+        String raw =
+                plugin.getMessageManager()
+                        .getRaw(
+                                "territory.enter.faction"
+                        );
+
+        String formatted =
+                TerritoryMessageFormatter
+                        .formatFaction(
+                                raw,
+                                faction.getName(),
+                                relationName,
+                                relationColor,
+                                faction.getDescription()
+                        );
+
         return plugin.getMessageManager()
-                .get(
-                        "territory.enter.faction",
-                        "{faction}",
-                        faction.getName(),
-                        "{relation}",
-                        relationName,
-                        "{color}",
-                        relationColor,
-                        "{description}",
-                        faction.getDescription()
-                );
+                .colorize(formatted);
+    }
+
+    /**
+     * Une couleur unique et configurable par type de claim.
+     *
+     * Les alliances et trêves restent visibles dans le texte {relation}, mais
+     * tout claim qui n'appartient pas au joueur est volontairement rouge selon
+     * la règle d'affichage Volkaria.
+     */
+    public String getFactionDisplayColor(
+            Faction faction,
+            Faction playerFaction
+    ) {
+        boolean own =
+                faction != null
+                        && playerFaction != null
+                        && faction.getId()
+                                .equals(
+                                        playerFaction.getId()
+                                );
+
+        String path = own
+                ? "territory.claim-colors.own"
+                : "territory.claim-colors.other";
+
+        String fallback = own ? "&a" : "&c";
+
+        return plugin.getConfigManager()
+                .getString(path, fallback);
     }
 
     public Set<Material> getSwitchBlocks() {

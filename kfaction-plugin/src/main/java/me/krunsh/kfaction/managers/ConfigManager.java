@@ -46,6 +46,7 @@ public class ConfigManager {
         }
         
         config = YamlConfiguration.loadConfiguration(configFile);
+        BundledYamlDefaults.apply(plugin, config, "config.yml");
     }
     
     /**

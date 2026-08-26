@@ -491,10 +491,29 @@ permissions:
 # ============================================================
 # TERRITORY / RAID POLICY
 # ============================================================
+
+# Affichage de /f show et de son alias /f f.
+# Les listes restent dans le chat et sont coupees proprement apres ce nombre
+# de pseudos (valeur acceptee: 1 a 15).
+faction-show:
+  names-per-line: 8
+  # Evite de rappeler Vault pour chaque spectateur et chaque survol.
+  member-details-cache-seconds: 15
+  server-rank:
+    enabled: true
+
 territory:
 
-  # Afficher les titres lors d'un changement de territoire.
-  use-titles: true
+  # true  = titre au centre de l'écran
+  # false = message compact dans le chat
+  use-titles: false
+
+  # Couleurs des claims de faction. SafeZone et WarZone gardent leur couleur
+  # dans leur définition unique sous "zones" ; Wilderness est défini dans
+  # messages.yml. Les alliances/trêves restent indiquées par le texte relation.
+  claim-colors:
+    own: "&a"
+    other: "&c"
 
   # ----------------------------------------------------------
   # Comportement d'une faction RAIDABLE
@@ -565,17 +584,17 @@ zones:
     display-name: "SafeZone"
 
     # Code couleur Minecraft.
-    color: "&a"
+    color: "&2"
 
     # Symbole /f map.
     map-symbol: "S"
 
     # Titre lors de l'entrée.
-    title: "&aSafeZone"
+    title: "&2SafeZone"
     subtitle: "&7Zone protégée"
 
     # Message utilisé si territory.use-titles=false.
-    enter-message: "&a~ SafeZone"
+    enter-message: "&2~ SafeZone"
 
     # PvP autorisé dans cette zone ?
     pvp: false
@@ -1079,19 +1098,6 @@ faction-chat:
 
 
 # ============================================================
-# HOOKS HISTORIQUES
-# ============================================================
-hooks:
-
-  # Bloquer certaines actions si le joueur est marqué en combat
-  # via Kcore ou CombatTagPlus.
-  combat-block:
-    home: true
-    stuck: true
-    leave: true
-
-
-# ============================================================
 # INTEGRATIONS V2
 # ============================================================
 integrations:
@@ -1261,4 +1267,3 @@ diagnostics:
 admin:
   zone-unclaim:
     default-radius: 5
-

@@ -19,7 +19,6 @@ import me.krunsh.kfaction.core.operation.OperationSource;
 import me.krunsh.kfaction.data.FLocation;
 import me.krunsh.kfaction.data.FPlayer;
 import me.krunsh.kfaction.data.Faction;
-import me.krunsh.kfaction.data.Relation;
 import me.krunsh.kfaction.data.FactionLog.LogType;
 import me.krunsh.kfaction.permissions.FactionCapability;
 import me.krunsh.kfaction.services.claim.ClaimBatchResult;
@@ -49,7 +48,7 @@ public class TerritoryListener implements Listener {
                 plugin.getConfigManager()
                         .getBoolean(
                                 "territory.use-titles",
-                                true
+                                false
                         );
     }
 
@@ -224,17 +223,12 @@ public class TerritoryListener implements Listener {
                             );
 
         } else {
-            String colorCode = "&f";
-
-            if (playerFaction != null) {
-                Relation relation =
-                        playerFaction.getRelationTo(
-                                factionAt
-                        );
-
-                colorCode =
-                        relation.getColorPrefix();
-            }
+            String colorCode =
+                    plugin.getTerritoryManager()
+                            .getFactionDisplayColor(
+                                    factionAt,
+                                    playerFaction
+                            );
 
             title =
                     colorCode

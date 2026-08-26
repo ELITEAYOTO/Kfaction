@@ -1,4 +1,5 @@
-KFACTION V2.2 - CANONICAL SOURCE MANIFEST
+KFACTION V2.2 - HISTORICAL CANONICAL SOURCE MANIFEST
+Archive du gel 2.2 : ce fichier ne décrit pas le worktree 2.3 courant.
 Generated from the complete user ZIP after Lot25D final audit overlay.
 
 Rule:

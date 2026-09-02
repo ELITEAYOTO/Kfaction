@@ -4,6 +4,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -59,6 +60,17 @@ public class BundledResourceContractTest {
 
         assertFalse(config.getBoolean("territory.use-titles", true));
         assertEquals(8, config.getInt("faction-show.names-per-line"));
+        assertEquals(
+                "FIXED",
+                config.getString("map.claimed-symbol-mode")
+        );
+        assertTrue(
+                config.getBoolean("map.uniform-cells.enabled")
+        );
+        assertEquals(
+                "■",
+                config.getString("map.uniform-cells.symbol")
+        );
         assertEquals(
                 "&7~ Wilderness",
                 messages.getString("territory.enter.wilderness")

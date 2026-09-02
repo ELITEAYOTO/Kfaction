@@ -10,12 +10,11 @@ canonique : une API publique stable et le plugin serveur.
 - la fiche faction sépare membres connectés et déconnectés ;
 - rang faction, rang serveur optionnel et argent sont visibles au survol ;
 - annonces de territoire dans le chat par défaut avec couleurs cohérentes ;
+- `/f map` utilise par défaut des cases uniformes colorées et conserve la
+  flèche d'orientation, sans décaler les colonnes avec les initiales de faction ;
 - placeholders de membres connectés triés par rôle puis par nom ;
 - intégration ShopGUIPlus optionnelle et fail-closed, sans JAR privé au build ;
 - compilation reproductible sous Java 8, sans dépendance `systemPath`.
-
-La refonte d'alignement de `/f map` reste un lot distinct et n'est pas annoncée
-comme terminée dans cette branche.
 
 ## Compiler
 
@@ -39,6 +38,7 @@ chaque bridge absent reste désactivé proprement.
 ## Documentation
 
 - [Affichage et migration 2.3](docs/KFACTION-2.3-DISPLAY.md)
+- [Validation 2.3.0](docs/VALIDATION-2.3.0.md)
 - [API V2](docs/API-V2.md)
 - [Intégrations](docs/INTEGRATIONS.md)
 - [Opérations](docs/OPERATIONS.md)

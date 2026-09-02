@@ -79,8 +79,10 @@ public final class MapManager {
     private boolean hoverEnabled;
     private boolean legendEnabled;
     private boolean autoMapEnabled;
+    private boolean uniformCellSymbols;
 
     private ClaimedSymbolMode claimedSymbolMode;
+    private String uniformCellSymbol;
 
     private String wildernessSymbol;
     private String safezoneSymbol;
@@ -208,8 +210,25 @@ public final class MapManager {
                         plugin.getConfigManager()
                                 .getString(
                                         "map.claimed-symbol-mode",
-                                        "TAG_INITIAL"
+                                        "FIXED"
                                 )
+                );
+
+        uniformCellSymbols =
+                plugin.getConfigManager()
+                        .getBoolean(
+                                "map.uniform-cells.enabled",
+                                true
+                        );
+
+        uniformCellSymbol =
+                normalizeCellSymbol(
+                        plugin.getConfigManager()
+                                .getString(
+                                        "map.uniform-cells.symbol",
+                                        "■"
+                                ),
+                        "■"
                 );
 
         wildernessSymbol =
@@ -737,8 +756,10 @@ public final class MapManager {
                             colorize(
                                     zone.getColor()
                             )
-                                    + colorize(
-                                            zone.getMapSymbol()
+                                    + cellSymbol(
+                                            colorize(
+                                                    zone.getMapSymbol()
+                                            )
                                     );
 
                     hover =
@@ -754,8 +775,10 @@ public final class MapManager {
                                     faction,
                                     playerFaction
                             )
-                                    + symbolForFaction(
-                                            faction
+                                    + cellSymbol(
+                                            symbolForFaction(
+                                                    faction
+                                            )
                                     );
 
                     hover =
@@ -838,8 +861,10 @@ public final class MapManager {
                 );
 
                 line.append(
-                        colorize(
-                                zone.getMapSymbol()
+                        cellSymbol(
+                                colorize(
+                                        zone.getMapSymbol()
+                                )
                         )
                 );
             } else {
@@ -851,8 +876,10 @@ public final class MapManager {
                 );
 
                 line.append(
-                        symbolForFaction(
-                                faction
+                        cellSymbol(
+                                symbolForFaction(
+                                        faction
+                                )
                         )
                 );
             }
@@ -867,10 +894,12 @@ public final class MapManager {
             Player player
     ) {
         String claimed =
-                claimedSymbolMode
-                        == ClaimedSymbolMode.FIXED
-                        ? claimSymbol
-                        : "#";
+                cellSymbol(
+                        claimedSymbolMode
+                                == ClaimedSymbolMode.FIXED
+                                ? claimSymbol
+                                : "#"
+                );
 
         player.sendMessage(
                 "§8"
@@ -894,7 +923,9 @@ public final class MapManager {
 
         player.sendMessage(
                 colorWilderness
-                        + wildernessSymbol
+                        + cellSymbol(
+                                wildernessSymbol
+                        )
                         + " "
                         + legendWilderness
                         + " §8| "
@@ -921,8 +952,10 @@ public final class MapManager {
                             zone.getColor()
                     )
             ).append(
-                    colorize(
-                            zone.getMapSymbol()
+                    cellSymbol(
+                            colorize(
+                                    zone.getMapSymbol()
+                            )
                     )
             ).append(
                     " "
@@ -1148,6 +1181,16 @@ public final class MapManager {
         return initial != null
                 ? initial
                 : claimSymbol;
+    }
+
+    private String cellSymbol(
+            String configuredSymbol
+    ) {
+        return selectCellSymbol(
+                uniformCellSymbols,
+                uniformCellSymbol,
+                configuredSymbol
+        );
     }
 
     private String hoverTemplate(
@@ -1499,12 +1542,15 @@ public final class MapManager {
                     values[i];
 
             facingSymbols[i] =
-                    symbol(
-                            "map.symbols.player."
-                                    + facing.name()
-                                            .toLowerCase(
-                                                    Locale.ROOT
-                                            ),
+                    normalizeCellSymbol(
+                            symbol(
+                                    "map.symbols.player."
+                                            + facing.name()
+                                                    .toLowerCase(
+                                                            Locale.ROOT
+                                                    ),
+                                    facing.defaultSymbol
+                            ),
                             facing.defaultSymbol
                     );
         }
@@ -1521,9 +1567,12 @@ public final class MapManager {
         hoverEnabled = true;
         legendEnabled = true;
         autoMapEnabled = true;
+        uniformCellSymbols = true;
 
         claimedSymbolMode =
-                ClaimedSymbolMode.TAG_INITIAL;
+                ClaimedSymbolMode.FIXED;
+
+        uniformCellSymbol = "■";
 
         wildernessSymbol = "·";
         safezoneSymbol = "S";
@@ -1643,6 +1692,36 @@ public final class MapManager {
                 );
     }
 
+    static String normalizeCellSymbol(
+            String source,
+            String fallback
+    ) {
+        String glyph = firstVisibleGlyph(source);
+
+        if (glyph != null) {
+            return glyph;
+        }
+
+        glyph = firstVisibleGlyph(fallback);
+
+        return glyph != null
+                ? glyph
+                : "■";
+    }
+
+    static String selectCellSymbol(
+            boolean uniform,
+            String uniformSymbol,
+            String configuredSymbol
+    ) {
+        return uniform
+                ? normalizeCellSymbol(
+                        uniformSymbol,
+                        "■"
+                )
+                : configuredSymbol;
+    }
+
     private static ClaimedSymbolMode
             parseClaimedSymbolMode(
                     String value
@@ -1666,20 +1745,27 @@ public final class MapManager {
     private static String firstVisibleCharacter(
             String source
     ) {
+        String glyph = firstVisibleGlyph(source);
+
+        return glyph != null
+                ? glyph.toUpperCase(Locale.ROOT)
+                : null;
+    }
+
+    private static String firstVisibleGlyph(
+            String source
+    ) {
         if (source == null
                 || source.trim().isEmpty()) {
             return null;
         }
 
-        String legacy =
-                ChatColor.translateAlternateColorCodes(
-                        '&',
-                        source
-                );
-
         String stripped =
                 ChatColor.stripColor(
-                        legacy
+                        ChatColor.translateAlternateColorCodes(
+                                '&',
+                                source
+                        )
                 );
 
         if (stripped == null) {
@@ -1692,15 +1778,10 @@ public final class MapManager {
             return null;
         }
 
-        int codePoint =
-                stripped.codePointAt(0);
+        int codePoint = stripped.codePointAt(0);
 
         return new String(
-                Character.toChars(
-                        codePoint
-                )
-        ).toUpperCase(
-                Locale.ROOT
+                Character.toChars(codePoint)
         );
     }
 

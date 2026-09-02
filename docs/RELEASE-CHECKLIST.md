@@ -1,4 +1,4 @@
-# Kfaction V2.2 — Release / Freeze Checklist
+# Kfaction 2.3.0 — Release / Freeze Checklist
 
 ## 1. Build
 
@@ -21,9 +21,11 @@ Tous les tests `src/test/java` doivent passer, notamment les contrats API/storag
 ```text
 KfactionApiV2.API_VERSION = 2.2.0
 KfactionApiV2.API_MAJOR = 2
+KfactionApiV23.API_VERSION = 2.3.0
 ```
 
-`KfactionApiV2ContractTest` doit passer.
+Les contrats V2 historiques et V2.3 doivent passer. KSpawner continue de
+consommer uniquement le contrat V2 stable (`checkTerritory`).
 
 ## 3. Storage
 
@@ -193,6 +195,10 @@ Supprimer temporairement sa section config et vérifier l'état orphelin fail-cl
 ## 13. Map
 
 - `/f map`;
+- mode `map.uniform-cells.enabled=true` : même glyphe sur toutes les cases
+  non-joueur, couleurs conservées et aucune initiale de faction ;
+- mode uniforme désactivé : symboles de zones et initiales configurables ;
+- chaque flèche joueur est limitée à un caractère visible ;
 - `/f auto claim`, `/f autoclaim`, `/f ac`;
 - map auto activée;
 - tourner dans le même chunk => aucun refresh;
@@ -213,7 +219,7 @@ Supprimer temporairement sa section config et vérifier l'état orphelin fail-cl
 Attendu:
 
 ```text
-API 2.2.0
+API 2.3.0 (compatibilité V2.2 conservée)
 payload schema 9
 storage connected
 0 index mismatch
@@ -268,14 +274,14 @@ boot debug=true green
 doctor full green
 doctor zones green
 restart green
-API 2.2 contract green
+API V2.2 et V2.3 contracts green
 schema contract green
 ```
 
 Après GO:
 
 ```text
-KFACTION V2.2 = FEATURE COMPLETE / API FROZEN
+KFACTION 2.3.0 = FEATURE COMPLETE / API V2 FROZEN
 ```
 
 et les nouvelles fonctions UI doivent partir dans Kgui V2 plutôt que réouvrir l'architecture Kfaction sans bug concret.

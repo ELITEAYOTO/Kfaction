@@ -975,8 +975,16 @@ map:
   width: 31
   height: 9
 
-  # FIXED / TAG_INITIAL / NAME_INITIAL
-  claimed-symbol-mode: "TAG_INITIAL"
+  # FIXED / TAG_INITIAL / NAME_INITIAL.
+  # Utilisé seulement si uniform-cells.enabled=false.
+  claimed-symbol-mode: "FIXED"
+
+  # Un glyphe identique pour toutes les cases non-joueur évite le décalage
+  # causé par la police proportionnelle de Minecraft 1.8. Les territoires sont
+  # différenciés uniquement par leur couleur. La flèche du joueur reste orientée.
+  uniform-cells:
+    enabled: true
+    symbol: "■"
 
   auto:
     enabled: true

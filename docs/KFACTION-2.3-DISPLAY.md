@@ -45,6 +45,26 @@ Valeurs par défaut :
 `territory.use-titles: false` envoie le changement dans le chat. Passer cette
 option à `true` réactive les titres centraux.
 
+## Carte des territoires
+
+Le mode uniforme est actif par défaut : toutes les cases non-joueur utilisent
+le même glyphe et seule leur couleur change. Cela évite les colonnes décalées
+par la police proportionnelle de Minecraft 1.8, tout en conservant la flèche
+d'orientation du joueur.
+
+```yaml
+map:
+  claimed-symbol-mode: "FIXED"
+  uniform-cells:
+    enabled: true
+    symbol: "■"
+```
+
+Le glyphe uniforme et les huit flèches sont limités au premier caractère
+visible. Mettre `uniform-cells.enabled: false` réactive les symboles propres aux
+zones et les modes `TAG_INITIAL` / `NAME_INITIAL`, sans garantie d'alignement
+si les glyphes choisis n'ont pas la même largeur visuelle.
+
 ## Migration non destructive
 
 Au chargement et au reload, Kfaction attache désormais les ressources YAML
@@ -76,8 +96,7 @@ résolu à l'exécution ; Kfaction ne compile et ne redistribue aucun JAR
 ShopGUIPlus. Si une future version casse ce contrat, le bridge est désactivé
 avec un avertissement unique et les quêtes de vente restent fail-closed.
 
-## Limite connue
+## Validation restante
 
-La correction des couleurs de `/f map` et l'alignement de symboles de largeur
-différente appartiennent au lot suivant. Aucun changement 2.3 actuel ne doit
-être présenté comme une refonte terminée de la carte.
+Le rendu final doit encore être contrôlé en jeu avec le pack de ressources du
+serveur, car OptiFine peut remplacer la police utilisée par le client.

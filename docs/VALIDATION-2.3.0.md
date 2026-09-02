@@ -30,11 +30,22 @@ Le JAR a été démarré deux fois avec KHopeSpigot/PandaSpigot `e9f9c73`, Java
 Les dépendances optionnelles absentes sont signalées comme informations et ne
 bloquent pas le cœur du plugin.
 
+## Contrat KSpawner 2.0.0
+
+Un troisième démarrage isolé a chargé les deux JAR ensemble. Kfaction a publié
+son service avant KSpawner et KSpawner a confirmé explicitement
+`KfactionV2 ✓`. Son stockage SQLite, sa sécurité d'identité et sa
+réconciliation ont démarré, puis son reload et l'arrêt des deux plugins se sont
+terminés sans erreur.
+
+Cette preuve valide le chargement et la résolution du contrat public. Elle ne
+remplace pas les décisions de permissions avec de vrais joueurs et claims.
+
 ## Validation encore nécessaire en jeu
 
 - contrôler visuellement `/f map` avec le pack OptiFine final ;
 - vérifier le survol des membres sur un vrai client 1.8.9 ;
-- tester les décisions `SPAWNER_PLACE`, `SPAWNER_BREAK` et
+- tester en jeu les décisions `SPAWNER_PLACE`, `SPAWNER_BREAK` et
   `SPAWNER_INTERACT` avec KSpawner 2.0.0 et plusieurs rangs de faction ;
 - rejouer les scénarios de claim/raid avec plusieurs joueurs.
 
